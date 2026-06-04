@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "id": "11111111-2222-3333-4444-555555555555",
+  "ts": 1717000000000,
+  "type": "call.state",
+  "device_id": "0a1b2c3d-4e5f-6789-0abc-def012345678",
+  "payload": {
+    "state": "ringing",
+    "phone_number": "+8613800000000",
+    "call_id": "call-xyz-789",
+    "contact_name": "Bob",
+    "sim_slot": 0
+  }
+}

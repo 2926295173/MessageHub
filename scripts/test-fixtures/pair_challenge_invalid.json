@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "11111111-2222-3333-4444-555555555555",
+  "ts": 1717000000000,
+  "type": "device.pair.challenge",
+  "device_id": "0a1b2c3d-4e5f-6789-0abc-def012345678",
+  "payload": {
+    "ephemeral_pubkey": "A+aQ+EphemeralPubKeyBase64NoPad==",
+    "code": "12345",
+    "expires_at": 1717000030000
+  }
+}

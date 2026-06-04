@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "11111111-2222-3333-4444-555555555555",
+  "ts": 1717000000000,
+  "type": "sms.send.request",
+  "device_id": "0d0e0f0a-0b0c-0d0e-0f0a-0b0c0d0e0f0a",
+  "payload": {
+    "to": "+8613800000000",
+    "body": "Hello from desktop",
+    "subscription_id": 1
+  }
+}

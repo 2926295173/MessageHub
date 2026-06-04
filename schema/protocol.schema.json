@@ -1,0 +1,439 @@
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$id": "https://github.com/anomalyco/phonebridge/schema/protocol.schema.json",
+  "$comment": "Authored against draft-2019-09 for ajv-cli 5.x compatibility. Constructs used (oneOf, if/then, $defs, const) are also valid in draft-2020-12.",
+  "title": "PhoneBridge Protocol v1",
+  "description": "Wire protocol envelope and message types for PhoneBridge. All messages are JSON, UTF-8, and follow the envelope shape. Both Rust and Kotlin clients derive their typed models from this schema.",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/envelope" }
+  ],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": ["v", "id", "ts", "type", "device_id", "payload"],
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1,
+          "description": "Protocol version. Currently 1."
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique message id (UUIDv4)."
+        },
+        "ts": {
+          "type": "integer",
+          
+          "minimum": 0,
+          "description": "Unix epoch milliseconds when the message was created."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "device.hello",
+            "device.heartbeat",
+            "device.info.update",
+            "device.pair.request",
+            "device.pair.challenge",
+            "device.pair.confirm",
+            "device.pair.accept",
+            "device.pair.reject",
+            "device.pair.complete",
+            "device.unpair",
+            "notification.received",
+            "notification.dismissed",
+            "sms.received",
+            "sms.send.request",
+            "sms.send.result",
+            "sms.list.request",
+            "sms.list.result",
+            "call.state",
+            "call.incoming",
+            "call.answer.request",
+            "call.end.request",
+            "call.dial.request",
+            "call.history"
+          ]
+        },
+        "device_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable id of the sending device (phone or desktop)."
+        },
+        "payload": {
+          "oneOf": [
+            { "$ref": "#/$defs/payload/empty" },
+            { "$ref": "#/$defs/payload/deviceHello" },
+            { "$ref": "#/$defs/payload/deviceHeartbeat" },
+            { "$ref": "#/$defs/payload/deviceInfoUpdate" },
+            { "$ref": "#/$defs/payload/pairRequest" },
+            { "$ref": "#/$defs/payload/pairChallenge" },
+            { "$ref": "#/$defs/payload/pairConfirm" },
+            { "$ref": "#/$defs/payload/pairAccept" },
+            { "$ref": "#/$defs/payload/pairReject" },
+            { "$ref": "#/$defs/payload/pairComplete" },
+            { "$ref": "#/$defs/payload/unpair" },
+            { "$ref": "#/$defs/payload/notificationReceived" },
+            { "$ref": "#/$defs/payload/notificationDismissed" },
+            { "$ref": "#/$defs/payload/smsReceived" },
+            { "$ref": "#/$defs/payload/smsSendRequest" },
+            { "$ref": "#/$defs/payload/smsSendResult" },
+            { "$ref": "#/$defs/payload/smsListRequest" },
+            { "$ref": "#/$defs/payload/smsListResult" },
+            { "$ref": "#/$defs/payload/callState" },
+            { "$ref": "#/$defs/payload/callIncoming" },
+            { "$ref": "#/$defs/payload/callAnswerRequest" },
+            { "$ref": "#/$defs/payload/callEndRequest" },
+            { "$ref": "#/$defs/payload/callDialRequest" },
+            { "$ref": "#/$defs/payload/callHistory" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "device.hello" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/deviceHello" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.heartbeat" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/deviceHeartbeat" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.info.update" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/deviceInfoUpdate" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.pair.request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/pairRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.pair.challenge" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/pairChallenge" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.pair.confirm" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/pairConfirm" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.pair.accept" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/pairAccept" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.pair.reject" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/pairReject" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.pair.complete" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/pairComplete" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "device.unpair" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/unpair" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "notification.received" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/notificationReceived" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "notification.dismissed" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/notificationDismissed" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sms.received" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/smsReceived" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sms.send.request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/smsSendRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sms.send.result" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/smsSendResult" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sms.list.request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/smsListRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "sms.list.result" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/smsListResult" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "call.state" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/callState" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "call.incoming" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/callIncoming" } } }
+        },
+        {
+          "if": { "properties": { "type": { "type": "string", "const": "call.answer.request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/callAnswerRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "call.end.request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/callEndRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "call.dial.request" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/callDialRequest" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "call.history" } } },
+          "then": { "properties": { "payload": { "$ref": "#/$defs/payload/callHistory" } } }
+        }
+      ]
+    },
+    "payload": {
+      "empty": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "deviceHello": {
+        "type": "object",
+        "required": ["name", "device_type", "protocol_version", "pubkey"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "device_type": { "type": "string", "enum": ["desktop", "android"] },
+          "protocol_version": { "type": "integer", "const": 1 },
+          "pubkey": {
+            "type": "string",
+            "description": "Base64 (no padding) of the device's long-term ECDH P-256 public key (SubjectPublicKeyInfo, 65 bytes uncompressed point)."
+          },
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "manufacturer": { "type": "string", "maxLength": 64 },
+          "model": { "type": "string", "maxLength": 64 }
+        },
+        "additionalProperties": false
+      },
+      "deviceHeartbeat": {
+        "type": "object",
+        "properties": {
+          "rtt_ms": { "type": "integer", "minimum": 0, "maximum": 60000 }
+        },
+        "additionalProperties": false
+      },
+      "deviceInfoUpdate": {
+        "type": "object",
+        "properties": {
+          "battery_level": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "is_charging": { "type": "boolean" },
+          "network_type": { "type": "string", "enum": ["wifi", "cellular", "ethernet", "none"] },
+          "android_version": { "type": "string" },
+          "app_version": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "pairRequest": {
+        "type": "object",
+        "required": ["ephemeral_pubkey"],
+        "properties": {
+          "ephemeral_pubkey": {
+            "type": "string",
+            "description": "Base64 of ephemeral ECDH P-256 public key, valid for the duration of this pairing attempt."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pairChallenge": {
+        "type": "object",
+        "required": ["ephemeral_pubkey", "code", "expires_at"],
+        "properties": {
+          "ephemeral_pubkey": { "type": "string" },
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "description": "6-digit decimal confirmation code derived from the shared secret."
+          },
+          "expires_at": {
+            "type": "integer",
+            
+            "description": "Unix epoch milliseconds after which the code is invalid."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pairConfirm": {
+        "type": "object",
+        "required": ["accepted"],
+        "properties": {
+          "accepted": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "pairAccept": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "pairReject": {
+        "type": "object",
+        "properties": {
+          "reason": { "type": "string", "maxLength": 256 }
+        },
+        "additionalProperties": false
+      },
+      "pairComplete": {
+        "type": "object",
+        "required": ["cert_pem", "cert_fingerprint"],
+        "properties": {
+          "cert_pem": {
+            "type": "string",
+            "description": "PEM-encoded X.509 certificate (self-signed) for the device's long-term identity."
+          },
+          "cert_fingerprint": {
+            "type": "string",
+            "pattern": "^[A-F0-9]{2}(:[A-F0-9]{2}){31}$",
+            "description": "SHA-256 fingerprint of the certificate, colon-separated upper-case hex bytes."
+          }
+        },
+        "additionalProperties": false
+      },
+      "unpair": {
+        "type": "object",
+        "properties": {
+          "reason": { "type": "string", "maxLength": 256 }
+        },
+        "additionalProperties": false
+      },
+      "notificationReceived": {
+        "type": "object",
+        "required": ["id", "package", "title", "content", "posted_at"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "package": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "app_name": { "type": "string", "maxLength": 128 },
+          "title": { "type": "string", "maxLength": 1024 },
+          "content": { "type": "string", "maxLength": 8192 },
+          "posted_at": { "type": "integer",  "minimum": 0 },
+          "is_sensitive": { "type": "boolean", "description": "true if the app flagged FLAG_NO_PEEK / similar" },
+          "category": { "type": "string", "maxLength": 64 }
+        },
+        "additionalProperties": false
+      },
+      "notificationDismissed": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "additionalProperties": false
+      },
+      "smsReceived": {
+        "type": "object",
+        "required": ["id", "address", "body", "received_at"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "address": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "body": { "type": "string", "maxLength": 8192 },
+          "received_at": { "type": "integer",  "minimum": 0 },
+          "sim_slot": { "type": "integer", "enum": [0, 1] },
+          "subscription_id": { "type": "integer" }
+        },
+        "additionalProperties": false
+      },
+      "smsSendRequest": {
+        "type": "object",
+        "required": ["to", "body"],
+        "properties": {
+          "to": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "body": { "type": "string", "minLength": 1, "maxLength": 8192 },
+          "subscription_id": { "type": "integer" }
+        },
+        "additionalProperties": false
+      },
+      "smsSendResult": {
+        "type": "object",
+        "required": ["request_id", "ok"],
+        "properties": {
+          "request_id": { "type": "string", "format": "uuid" },
+          "ok": { "type": "boolean" },
+          "error_code": { "type": "string", "maxLength": 64 },
+          "error_message": { "type": "string", "maxLength": 256 }
+        },
+        "additionalProperties": false
+      },
+      "smsListRequest": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 },
+          "before": { "type": "integer",  "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "smsListResult": {
+        "type": "object",
+        "required": ["messages"],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/payload/smsReceived" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "callState": {
+        "type": "object",
+        "required": ["state"],
+        "properties": {
+          "state": { "type": "string", "enum": ["idle", "ringing", "offhook"] },
+          "phone_number": { "type": "string", "maxLength": 32 },
+          "call_id": { "type": "string", "maxLength": 64 },
+          "contact_name": { "type": "string", "maxLength": 128 },
+          "sim_slot": { "type": "integer", "enum": [0, 1] }
+        },
+        "additionalProperties": false
+      },
+      "callIncoming": {
+        "type": "object",
+        "required": ["phone_number"],
+        "properties": {
+          "phone_number": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "contact_name": { "type": "string", "maxLength": 128 },
+          "sim_slot": { "type": "integer", "enum": [0, 1] }
+        },
+        "additionalProperties": false
+      },
+      "callAnswerRequest": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "callEndRequest": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "callDialRequest": {
+        "type": "object",
+        "required": ["number"],
+        "properties": {
+          "number": { "type": "string", "minLength": 1, "maxLength": 32 }
+        },
+        "additionalProperties": false
+      },
+      "callHistory": {
+        "type": "object",
+        "required": ["entries"],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["phone_number", "started_at", "direction"],
+              "properties": {
+                "phone_number": { "type": "string", "maxLength": 32 },
+                "contact_name": { "type": "string", "maxLength": 128 },
+                "started_at": { "type": "integer",  "minimum": 0 },
+                "duration_seconds": { "type": "integer", "minimum": 0 },
+                "direction": { "type": "string", "enum": ["incoming", "outgoing", "missed"] },
+                "sim_slot": { "type": "integer", "enum": [0, 1] }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

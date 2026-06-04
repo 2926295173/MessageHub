@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "id": "11111111-2222-3333-4444-555555555555",
+  "ts": 1717000000000,
+  "type": "device.hello",
+  "device_id": "0a1b2c3d-4e5f-6789-0abc-def012345678",
+  "payload": {
+    "name": "Pixel 8 Pro",
+    "device_type": "android",
+    "protocol_version": 1,
+    "pubkey": "A+aQ+TestPublicKeyBase64NoPad==",
+    "port": 8443,
+    "manufacturer": "Google",
+    "model": "Pixel 8 Pro"
+  }
+}

@@ -1,0 +1,82 @@
+# Rust / Cargo
+/target/
+**/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.next/cache/
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+.directory
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Local env / config
+.env
+.env.local
+.env.*.local
+
+# Runtime data (never commit)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Certificates / keys (never commit)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Android build output
+android/app/build/
+android/app/release/
+android/.gradle/
+android/build/
+android/**/build/
+android/local.properties
+android/.cxx/
+android/captures/
+android/.externalNativeBuild/
+
+# Android Studio / IntelliJ
+android/.idea/
+android/*.iml
+android/.kotlin/
+
+# Keystore
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.directory
+*.swp
+
+# Coverage / test artifacts
+coverage/
+*.profraw
+*.profdata
