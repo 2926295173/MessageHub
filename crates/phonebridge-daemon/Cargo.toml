@@ -1,0 +1,59 @@
+[package]
+name = "phonebridge-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "PhoneBridge desktop daemon (axum + TLS + mDNS)."
+
+[[bin]]
+name = "phonebridge-daemon"
+path = "src/main.rs"
+
+[build-dependencies]
+# We use include_dir! as a regular dependency, not a build script.
+
+[dependencies]
+phonebridge-proto = { path = "../phonebridge-proto" }
+phonebridge-core = { path = "../phonebridge-core" }
+phonebridge-crypto = { path = "../phonebridge-crypto" }
+phonebridge-storage = { path = "../phonebridge-storage" }
+phonebridge-bus = { path = "../phonebridge-bus" }
+phonebridge-net = { path = "../phonebridge-net" }
+
+tokio.workspace = true
+axum.workspace = true
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tower.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+
+rustls.workspace = true
+ring.workspace = true
+rustls-pemfile = "2"
+base64.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+include_dir.workspace = true
+mime_guess.workspace = true
+once_cell.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true

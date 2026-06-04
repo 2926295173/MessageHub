@@ -1,0 +1,27 @@
+[package]
+name = "phonebridge-net"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Networking: mDNS, WebSocket handlers, TLS pinning. M1 stubs; M2 implements."
+
+[dependencies]
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+axum.workspace = true
+tower.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+phonebridge-proto = { path = "../phonebridge-proto" }
+phonebridge-bus = { path = "../phonebridge-bus" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }

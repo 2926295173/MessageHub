@@ -1,0 +1,21 @@
+[package]
+name = "phonebridge-bus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "In-process event bus. Plugin / automation hooks (M2+)."
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+phonebridge-proto = { path = "../phonebridge-proto" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
