@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">PhoneBridge</string>
+    <string name="notification_listener">PhoneBridge notification relay</string>
+    <string name="permission_explain_title">PhoneBridge needs a few permissions</string>
+    <string name="permission_explain_body">Grant notifications, SMS, and call access so this device can be controlled by your desktop daemon over LAN.</string>
+    <string name="grant_button">Grant</string>
+    <string name="pairing_title">Pair with desktop</string>
+    <string name="pairing_waiting">Searching the LAN for PhoneBridge daemons…</string>
+    <string name="pairing_code_label">Enter this code on your desktop</string>
+    <string name="pairing_confirm">Confirm on desktop</string>
+    <string name="pairing_done">Paired and connected</string>
+    <string name="settings_title">Settings</string>
+    <string name="notif_channel_bridge">PhoneBridge</string>
+</resources>

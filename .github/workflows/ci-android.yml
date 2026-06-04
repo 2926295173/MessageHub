@@ -1,26 +1,18 @@
-name: Android
+name: android
 
 on:
   push:
-    branches: [main, master]
-  paths:
-    - 'android/**'
-    - 'schema/**'
-    - '.github/workflows/ci-android.yml'
-  pull_request:
-    branches: [main, master]
     paths:
-      - 'android/**'
-      - '.github/workflows/ci-android.yml'
-
-env:
-  ANDROID_HOME: /opt/android-sdk
-  ANDROID_SDK_ROOT: /opt/android-sdk
-  JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
+      - "android/**"
+      - "schema/**"
+  pull_request:
+    paths:
+      - "android/**"
+      - "schema/**"
 
 jobs:
-  lint:
-    name: Kotlin / Gradle build
+  test:
+    name: Android unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +23,38 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # M4 note: the Android module is scaffolded but not yet implemented
-      # (lives in M5+). This job will be a no-op until M5 lands the actual
-      # Kotlin sources. We keep it active to fail fast on schema drift.
-      - name: Stub: check android module structure exists
-        run: |
-          test -d android && echo "android/ present" || (echo "android/ missing (M4 stub)" && exit 0)
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 35
+          build-tools-version: 35.0.0
+          ndk-version: 26.3.11579264
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-android-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-android-${{ runner.os }}-
+
+      - name: Make gradlew executable
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        working-directory: android
+        run: ./gradlew :core:testDebugUnitTest :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble debug APK
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: phonebridge-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

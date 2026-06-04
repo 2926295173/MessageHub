@@ -1,0 +1,17 @@
+# Build outputs
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+android/**/.cxx/
+
+# IDE
+android/.idea/
+android/.vscode/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
