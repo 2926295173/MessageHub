@@ -12,6 +12,7 @@
 //! - `GET  /notifications`     — list notifications
 //! - `GET  /notifications/stats` — counts (total, unread, by package)
 //! - `POST /notifications/:device_id/:id/read` — mark one read
+//! - `POST /notifications/mark-all-read`       — mark all read
 //! - `GET  /sms`               — list SMS
 //! - `GET  /sms/conversations` — group by phone number
 //! - `POST /sms`               — send an SMS (forwards to android via WS)
@@ -19,6 +20,10 @@
 //! - `GET  /dashboard`         — aggregate counts
 //! - `GET  /audit`             — recent audit log
 //! - `POST /dial`              — place an outgoing call (forwards to android)
+//!
+//! OpenAPI: Swagger UI is served at `/console/api-docs` (in production
+//! at the daemon's HTTPS port). The raw OpenAPI JSON is at
+//! `/console/api-docs/openapi.json`.
 
 use axum::Json;
 use axum::Router;
@@ -34,6 +39,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
+use utoipa::{OpenApi, ToSchema};
 
 use phonebridge_net::DeviceRegistry;
 use phonebridge_proto::{MessageType, SmsSendRequest, SmsSendResult};
@@ -59,6 +65,10 @@ pub fn router() -> Router<AppState> {
             "/notifications/:device_id/:id/read",
             post(mark_notification_read),
         )
+        .route(
+            "/notifications/mark-all-read",
+            post(mark_all_notifications_read),
+        )
         .route("/sms", get(list_sms))
         .route("/sms/conversations", get(list_sms_conversations))
         .route("/sms", post(send_sms))
@@ -72,16 +82,24 @@ pub fn router() -> Router<AppState> {
 // health + cert
 // ============================================================================
 
-#[derive(Debug, Serialize)]
-struct HealthBody {
-    status: &'static str,
-    version: &'static str,
-    our_device_id: Uuid,
-    our_fingerprint: String,
-    paired_devices: i64,
-    online_devices: i64,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct HealthBody {
+    pub status: &'static str,
+    pub version: &'static str,
+    pub our_device_id: Uuid,
+    pub our_fingerprint: String,
+    pub paired_devices: i64,
+    pub online_devices: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Daemon is healthy", body = HealthBody),
+    )
+)]
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
     let paired = count_paired(&state).await.unwrap_or(0);
     let body = HealthBody {
@@ -104,27 +122,49 @@ async fn count_paired(state: &AppState) -> anyhow::Result<i64> {
     Ok(n)
 }
 
-async fn get_cert(State(state): State<AppState>) -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        Json(json!({
-            "device_id": state.our_device_id,
-            "name": state.our_name.read().clone(),
-            "fingerprint": state.our_fingerprint.read().clone(),
-            "public_key": state.our_public_key_b64.read().clone(),
-        })),
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CertBody {
+    pub device_id: Uuid,
+    pub name: String,
+    pub fingerprint: String,
+    pub public_key: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/cert",
+    tag = "identity",
+    responses(
+        (status = 200, description = "This daemon's cert + identity", body = CertBody),
     )
+)]
+async fn get_cert(State(state): State<AppState>) -> impl IntoResponse {
+    let body = CertBody {
+        device_id: state.our_device_id,
+        name: state.our_name.read().clone(),
+        fingerprint: state.our_fingerprint.read().clone(),
+        public_key: state.our_public_key_b64.read().clone(),
+    };
+    (StatusCode::OK, Json(body))
 }
 
 // ============================================================================
 // devices
 // ============================================================================
 
-#[derive(Debug, Serialize)]
-struct DeviceListResponse {
-    devices: Vec<DeviceRow>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DeviceListResponse {
+    pub devices: Vec<DeviceRow>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/devices",
+    tag = "devices",
+    responses(
+        (status = 200, description = "List paired + discovered devices", body = DeviceListResponse),
+    )
+)]
 async fn list_devices(State(state): State<AppState>) -> impl IntoResponse {
     match state.db.list_devices().await {
         Ok(devs) => (StatusCode::OK, Json(DeviceListResponse { devices: devs })).into_response(),
@@ -132,6 +172,18 @@ async fn list_devices(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/devices/{id}",
+    tag = "devices",
+    params(
+        ("id" = Uuid, Path, description = "Device id (UUIDv4)"),
+    ),
+    responses(
+        (status = 200, description = "Device", body = DeviceRow),
+        (status = 404, description = "Device not found"),
+    )
+)]
 async fn get_device(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -143,6 +195,18 @@ async fn get_device(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/devices/{id}",
+    tag = "devices",
+    params(
+        ("id" = Uuid, Path, description = "Device id (UUIDv4)"),
+    ),
+    responses(
+        (status = 204, description = "Device unpaired + removed"),
+        (status = 500, description = "DB error"),
+    )
+)]
 async fn remove_device(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -150,7 +214,6 @@ async fn remove_device(
     state.pairing.remove(&id);
     state.registry.unregister(&id);
     state.pin_store.write().remove(&id);
-    // Audit log + remove from DB.
     let _ = state
         .db
         .insert_audit_log(Utc::now().timestamp_millis(), Some(id), "device.unpair", None)
@@ -165,12 +228,20 @@ async fn remove_device(
 // pairings
 // ============================================================================
 
-#[derive(Debug, Serialize)]
-struct PairingsResponse {
-    in_flight: Vec<Uuid>,
-    persisted: Vec<PairingRow>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PairingsResponse {
+    pub in_flight: Vec<Uuid>,
+    pub persisted: Vec<PairingRow>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/pairings",
+    tag = "pairings",
+    responses(
+        (status = 200, description = "In-flight + persisted pairings", body = PairingsResponse),
+    )
+)]
 async fn list_pairings(State(state): State<AppState>) -> impl IntoResponse {
     let in_flight: Vec<Uuid> = state
         .pairing
@@ -203,19 +274,23 @@ async fn list_pairings(State(state): State<AppState>) -> impl IntoResponse {
         .into_response()
 }
 
-#[derive(Debug, Deserialize)]
-struct PairStartRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PairStartRequest {
     /// The device id to pair with (must be currently connected).
-    device_id: Uuid,
+    pub device_id: Uuid,
 }
 
 /// `POST /api/v1/pair/start` — initiate pairing with a connected device.
-///
-/// In the MVP flow, the android opens the WS first and sends `device.hello`.
-/// The desktop's `ws_handler` registers a Responder state machine. When
-/// the user clicks "Pair" in the web console, this endpoint finds the
-/// device and sends `device.pair.request` over the WS to trigger the
-/// pairing flow.
+#[utoipa::path(
+    post,
+    path = "/api/v1/pair/start",
+    tag = "pairings",
+    request_body = PairStartRequest,
+    responses(
+        (status = 200, description = "device.pair.request sent"),
+        (status = 409, description = "Device not connected"),
+    )
+)]
 async fn pair_start(
     State(state): State<AppState>,
     Json(req): Json<PairStartRequest>,
@@ -299,11 +374,25 @@ struct ListNotificationsQuery {
     unread_only: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
-struct NotificationsResponse {
-    notifications: Vec<NotificationRow>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationsResponse {
+    pub notifications: Vec<NotificationRow>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/notifications",
+    tag = "notifications",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "Filter by device"),
+        ("limit" = Option<i64>, Query, description = "Max rows (default 50, max 500)"),
+        ("package" = Option<String>, Query, description = "Filter by app package"),
+        ("unread_only" = Option<bool>, Query, description = "If true, only unread"),
+    ),
+    responses(
+        (status = 200, description = "Notifications", body = NotificationsResponse),
+    )
+)]
 async fn list_notifications(
     State(state): State<AppState>,
     Query(q): Query<ListNotificationsQuery>,
@@ -319,19 +408,30 @@ async fn list_notifications(
     }
 }
 
-#[derive(Debug, Serialize)]
-struct NotificationsStats {
-    total: i64,
-    unread: i64,
-    by_package: Vec<PackageCount>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationsStats {
+    pub total: i64,
+    pub unread: i64,
+    pub by_package: Vec<PackageCount>,
 }
 
-#[derive(Debug, Serialize)]
-struct PackageCount {
-    package: String,
-    count: i64,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PackageCount {
+    pub package: String,
+    pub count: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/notifications/stats",
+    tag = "notifications",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "Filter by device"),
+    ),
+    responses(
+        (status = 200, description = "Aggregate counts", body = NotificationsStats),
+    )
+)]
 async fn notifications_stats(
     State(state): State<AppState>,
     Query(q): Query<ListNotificationsQuery>,
@@ -366,6 +466,18 @@ async fn notifications_stats(
         .into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/notifications/{device_id}/{id}/read",
+    tag = "notifications",
+    params(
+        ("device_id" = Uuid, Path, description = "Device id"),
+        ("id" = String, Path, description = "Notification id (per-device)"),
+    ),
+    responses(
+        (status = 204, description = "Marked read"),
+    )
+)]
 async fn mark_notification_read(
     State(state): State<AppState>,
     Path((device_id, id)): Path<(Uuid, String)>,
@@ -374,6 +486,37 @@ async fn mark_notification_read(
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response();
     }
     (StatusCode::NO_CONTENT, "").into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/notifications/mark-all-read",
+    tag = "notifications",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "If absent, mark all devices' notifications read"),
+    ),
+    responses(
+        (status = 204, description = "All matching notifications marked read"),
+    )
+)]
+async fn mark_all_notifications_read(
+    State(state): State<AppState>,
+    Query(q): Query<ListNotificationsQuery>,
+) -> impl IntoResponse {
+    let limit = 100_000i64;
+    match state
+        .db
+        .list_notifications(q.device_id, limit, true, None)
+        .await
+    {
+        Ok(rows) => {
+            for n in rows {
+                let _ = state.db.mark_notification_read(n.device_id, &n.id).await;
+            }
+            (StatusCode::NO_CONTENT, "").into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response(),
+    }
 }
 
 // ============================================================================
@@ -387,11 +530,24 @@ struct ListSmsQuery {
     limit: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
-struct SmsListResponse {
-    messages: Vec<SmsRow>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SmsListResponse {
+    pub messages: Vec<SmsRow>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/sms",
+    tag = "sms",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "Filter by device"),
+        ("phone_number" = Option<String>, Query, description = "Filter by phone number"),
+        ("limit" = Option<i64>, Query, description = "Max rows (default 50)"),
+    ),
+    responses(
+        (status = 200, description = "SMS messages", body = SmsListResponse),
+    )
+)]
 async fn list_sms(
     State(state): State<AppState>,
     Query(q): Query<ListSmsQuery>,
@@ -407,18 +563,29 @@ async fn list_sms(
     }
 }
 
-#[derive(Debug, Serialize)]
-struct SmsConversationsResponse {
-    conversations: Vec<SmsConversation>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SmsConversationsResponse {
+    pub conversations: Vec<SmsConversation>,
 }
 
-#[derive(Debug, Serialize)]
-struct SmsConversation {
-    address: String,
-    last_timestamp: i64,
-    count: i64,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SmsConversation {
+    pub address: String,
+    pub last_timestamp: i64,
+    pub count: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/sms/conversations",
+    tag = "sms",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "Filter by device"),
+    ),
+    responses(
+        (status = 200, description = "Grouped by phone number", body = SmsConversationsResponse),
+    )
+)]
 async fn list_sms_conversations(
     State(state): State<AppState>,
     Query(q): Query<ListSmsQuery>,
@@ -443,13 +610,13 @@ async fn list_sms_conversations(
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct SendSmsRequest {
-    device_id: Uuid,
-    to: String,
-    body: String,
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SendSmsRequest {
+    pub device_id: Uuid,
+    pub to: String,
+    pub body: String,
     #[serde(default)]
-    subscription_id: Option<i32>,
+    pub subscription_id: Option<i32>,
 }
 
 /// In-memory map of pending SMS sends: `envelope_id` → list of
@@ -460,6 +627,16 @@ fn _sms_waiters_marker(_w: &SmsWaiters) {}
 use tokio::sync::oneshot;
 
 /// `POST /sms` — send an SMS via the device, return the result.
+#[utoipa::path(
+    post,
+    path = "/api/v1/sms",
+    tag = "sms",
+    request_body = SendSmsRequest,
+    responses(
+        (status = 202, description = "SMS queued; request_id returned"),
+        (status = 409, description = "Device not connected"),
+    )
+)]
 async fn send_sms(
     State(state): State<AppState>,
     Json(req): Json<SendSmsRequest>,
@@ -538,11 +715,23 @@ struct ListCallsQuery {
     limit: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
-struct CallsResponse {
-    calls: Vec<CallRow>,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CallsResponse {
+    pub calls: Vec<CallRow>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/calls",
+    tag = "calls",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "Filter by device"),
+        ("limit" = Option<i64>, Query, description = "Max rows (default 50)"),
+    ),
+    responses(
+        (status = 200, description = "Call log entries", body = CallsResponse),
+    )
+)]
 async fn list_calls(
     State(state): State<AppState>,
     Query(q): Query<ListCallsQuery>,
@@ -554,12 +743,22 @@ async fn list_calls(
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct DialRequest {
-    device_id: Uuid,
-    number: String,
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DialRequest {
+    pub device_id: Uuid,
+    pub number: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/dial",
+    tag = "calls",
+    request_body = DialRequest,
+    responses(
+        (status = 202, description = "Dialing"),
+        (status = 409, description = "Device not connected"),
+    )
+)]
 async fn dial(
     State(state): State<AppState>,
     Json(req): Json<DialRequest>,
@@ -623,34 +822,45 @@ struct DashboardQuery {
     device_id: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize)]
-struct DashboardBody {
-    paired_devices: i64,
-    online_devices: i64,
-    notifications: NotificationCounts,
-    sms: SmsCounts,
-    calls: CallCounts,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DashboardBody {
+    pub paired_devices: i64,
+    pub online_devices: i64,
+    pub notifications: NotificationCounts,
+    pub sms: SmsCounts,
+    pub calls: CallCounts,
 }
 
-#[derive(Debug, Serialize)]
-struct NotificationCounts {
-    total: i64,
-    unread: i64,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotificationCounts {
+    pub total: i64,
+    pub unread: i64,
 }
 
-#[derive(Debug, Serialize)]
-struct SmsCounts {
-    total: i64,
-    conversations: i64,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SmsCounts {
+    pub total: i64,
+    pub conversations: i64,
 }
 
-#[derive(Debug, Serialize)]
-struct CallCounts {
-    total: i64,
-    missed: i64,
-    ringing: i64,
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CallCounts {
+    pub total: i64,
+    pub missed: i64,
+    pub ringing: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/dashboard",
+    tag = "health",
+    params(
+        ("device_id" = Option<Uuid>, Query, description = "Filter by device"),
+    ),
+    responses(
+        (status = 200, description = "Aggregate counts", body = DashboardBody),
+    )
+)]
 async fn dashboard(
     State(state): State<AppState>,
     Query(q): Query<DashboardQuery>,
@@ -711,13 +921,29 @@ struct AuditQuery {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditListResponse {
+    pub entries: Vec<AuditLogRow>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/audit",
+    tag = "audit",
+    params(
+        ("limit" = Option<i64>, Query, description = "Max entries (default 100, max 1000)"),
+    ),
+    responses(
+        (status = 200, description = "Audit log entries", body = AuditListResponse),
+    )
+)]
 async fn list_audit(
     State(state): State<AppState>,
     Query(q): Query<AuditQuery>,
 ) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).clamp(1, 1000);
     match state.db.list_audit_log(limit).await {
-        Ok(rows) => (StatusCode::OK, Json(json!({"entries": rows}))).into_response(),
+        Ok(rows) => (StatusCode::OK, Json(AuditListResponse { entries: rows })).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response(),
     }
 }

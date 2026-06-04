@@ -101,7 +101,7 @@ async fn ws_dispatch_persists_to_db() {
 
     let counters = Arc::new(std::sync::Mutex::new(Counters::default()));
     let sink: Arc<dyn WsSink + Send + Sync> = Arc::new(CountingSink {
-        inner: Arc::new(DaemonSink::new(db_arc.clone())),
+        inner: Arc::new(DaemonSink::new(db_arc.clone(), phonebridge_daemon::console_bus::ConsoleBus::default())),
         counter: counters.clone(),
     });
 

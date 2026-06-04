@@ -59,6 +59,14 @@ function SidebarHeader() {
           {dashboard.data.online_devices}/{dashboard.data.paired_devices} online
         </div>
       )}
+      <a
+        href="/console/api-docs/"
+        target="_blank"
+        rel="noreferrer"
+        className="link link-primary mt-3 block text-xs"
+      >
+        API docs (Swagger) →
+      </a>
     </div>
   );
 }

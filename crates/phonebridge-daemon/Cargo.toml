@@ -26,6 +26,7 @@ phonebridge-net = { path = "../phonebridge-net" }
 
 parking_lot.workspace = true
 async-trait.workspace = true
+utoipa.workspace = true
 
 tokio.workspace = true
 axum.workspace = true

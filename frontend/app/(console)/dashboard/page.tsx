@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { LiveActivity } from "@/components/LiveActivity";
 
 function StatCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -85,7 +86,7 @@ export default function DashboardPage() {
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="card bg-base-200">
           <div className="card-body p-4">
             <h2 className="card-title text-base">Recent notifications</h2>
@@ -147,6 +148,8 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+
+        <LiveActivity />
       </section>
     </div>
   );

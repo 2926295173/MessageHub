@@ -14,7 +14,7 @@ use phonebridge_core::{config::Config, logging, paths::AppPaths};
 use phonebridge_storage::Db;
 
 use phonebridge_daemon::app_state::AppState;
-use phonebridge_daemon::ws::ws_upgrade;
+use phonebridge_daemon::ws::{ws_console_upgrade, ws_upgrade};
 
 #[derive(Parser, Debug)]
 #[command(name = "phonebridge-daemon", version, about = "PhoneBridge desktop daemon")]
@@ -169,10 +169,18 @@ async fn main() -> anyhow::Result<()> {
 fn build_router(state: AppState) -> Router {
     use tower_http::trace::TraceLayer;
 
+    // All sub-routers are typed for AppState so we can `merge` them
+    // freely, then apply `with_state` at the end.
+    let api = phonebridge_daemon::rest::router();
+    let api_docs = phonebridge_daemon::openapi::router();
+    let static_assets = phonebridge_daemon::static_files::router();
+
     Router::new()
-        .nest("/api/v1", phonebridge_daemon::rest::router())
-        .merge(phonebridge_daemon::static_files::router())
+        .nest("/api/v1", api)
         .route("/ws", axum::routing::get(ws_upgrade))
+        .route("/ws/console", axum::routing::get(ws_console_upgrade))
+        .merge(api_docs)
+        .merge(static_assets)
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

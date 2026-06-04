@@ -6,9 +6,11 @@
 
 pub mod app_state;
 pub mod cert_loader;
+pub mod console_bus;
 pub mod daemon_sink;
 pub mod identity;
 pub mod mdns_service;
+pub mod openapi;
 pub mod pair_cli;
 pub mod rest;
 pub mod static_files;

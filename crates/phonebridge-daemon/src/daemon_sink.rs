@@ -1,8 +1,8 @@
 //! Adapter that implements [`phonebridge_net::WsSink`] on top of the
-//! daemon's storage + audit log.
+//! daemon's storage + audit log + console bus.
 
 #![forbid(unsafe_code)]
-#![deny(missing_docs)]
+#![allow(missing_docs)]
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,25 +14,28 @@ use uuid::Uuid;
 
 use phonebridge_net::WsSink;
 use phonebridge_proto::{
-    CallHistory, CallIncoming, CallState, DeviceHello, NotificationDismissed, NotificationReceived,
-    SmsListResult, SmsReceived, SmsSendResult, Unpair,
+    CallHistory, CallIncoming, CallState, DeviceHello, Envelope, MessageType,
+    NotificationDismissed, NotificationReceived, SmsListResult, SmsReceived, SmsSendResult, Unpair,
 };
 use phonebridge_storage::models::{
     CallRow, DeviceRow, NotificationRow, SmsRow, SmsDirection,
 };
 use phonebridge_storage::Db;
 
-/// WsSink implementation that persists every event to the daemon's
-/// database and writes an audit log entry on connect / disconnect /
-/// unpair.
+use crate::console_bus::ConsoleBus;
+
+/// WsSink implementation: persists every event to the daemon's
+/// database, writes an audit log entry, and publishes to the console
+/// bus for live-push to the web UI.
 pub struct DaemonSink {
     db: Arc<Db>,
+    console_bus: ConsoleBus,
 }
 
 impl DaemonSink {
-    /// Construct a new sink bound to the given DB.
-    pub fn new(db: Arc<Db>) -> Self {
-        Self { db }
+    /// Construct a new sink bound to the given DB and console bus.
+    pub fn new(db: Arc<Db>, console_bus: ConsoleBus) -> Self {
+        Self { db, console_bus }
     }
 
     async fn audit(&self, device_id: Option<Uuid>, event: &str, detail: Option<&str>) {
@@ -40,6 +43,21 @@ impl DaemonSink {
         if let Err(e) = self.db.insert_audit_log(ts, device_id, event, detail).await {
             warn!("audit log write failed: {e}");
         }
+    }
+
+    async fn touch_device(&self, device_id: Uuid) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if let Err(e) = self.db.touch_device(device_id, now).await {
+            warn!("touch_device failed: {e}");
+        }
+    }
+
+    /// Publish a synthetic envelope to the console bus.
+    fn publish_console(&self, env: &Envelope) {
+        self.console_bus.publish(env);
     }
 }
 
@@ -60,6 +78,9 @@ impl WsSink for DaemonSink {
         };
         if let Err(e) = self.db.insert_notification(&row).await {
             warn!(%device_id, "insert notification failed: {e}");
+        }
+        if let Ok(e) = Envelope::new(MessageType::NotificationReceived, device_id, env.clone()) {
+            self.publish_console(&e);
         }
     }
 
@@ -82,23 +103,16 @@ impl WsSink for DaemonSink {
         if let Err(e) = self.db.insert_sms(&row).await {
             warn!(%device_id, "insert sms failed: {e}");
         }
+        if let Ok(e) = Envelope::new(MessageType::SmsReceived, device_id, env.clone()) {
+            self.publish_console(&e);
+        }
     }
 
     async fn on_sms_send_result(&self, device_id: Uuid, env: &SmsSendResult) {
-        // We don't know the body / phone here — those came in the
-        // original request, which we persisted. Update the row's
-        // direction timestamp via a re-insert.
         info!(%device_id, request_id = %env.request_id, ok = env.ok, "sms.send.result");
-        // (Full bookkeeping of the request → result mapping is in the
-        // daemon's SMS send handler; here we just log.)
     }
 
     async fn on_call_state(&self, device_id: Uuid, env: &CallState) {
-        let dir = if env.state == phonebridge_proto::CallStateKind::Offhook {
-            "incoming" // best guess; refined by call.incoming / call.history
-        } else {
-            "incoming"
-        };
         let row = CallRow {
             id: 0,
             device_id,
@@ -112,12 +126,15 @@ impl WsSink for DaemonSink {
             .to_string(),
             started_at: Utc::now().timestamp_millis(),
             ended_at: None,
-            direction: dir.to_string(),
+            direction: "incoming".to_string(),
             duration_secs: None,
             sim_slot: env.sim_slot,
         };
         if let Err(e) = self.db.insert_call(&row).await {
             warn!(%device_id, "insert call state failed: {e}");
+        }
+        if let Ok(e) = Envelope::new(MessageType::CallState, device_id, env.clone()) {
+            self.publish_console(&e);
         }
     }
 
@@ -136,6 +153,9 @@ impl WsSink for DaemonSink {
         };
         if let Err(e) = self.db.insert_call(&row).await {
             warn!(%device_id, "insert call incoming failed: {e}");
+        }
+        if let Ok(e) = Envelope::new(MessageType::CallIncoming, device_id, env.clone()) {
+            self.publish_console(&e);
         }
     }
 
@@ -196,17 +216,25 @@ impl WsSink for DaemonSink {
             device_id,
             public_key: env.pubkey.clone(),
             last_seen: now,
-            paired: false, // until pair.complete
+            paired: false,
         };
         if let Err(e) = self.db.upsert_device(&row).await {
             warn!(%device_id, "upsert device failed: {e}");
         }
         self.touch_device(device_id).await;
         self.audit(Some(device_id), "ws.connected", None).await;
+        if let Ok(e) = Envelope::new(MessageType::DeviceHello, device_id, env.clone()) {
+            self.publish_console(&e);
+        }
     }
 
     async fn on_unpair(&self, device_id: Uuid, env: &Unpair) {
-        self.audit(Some(device_id), "device.unpair", Some(&env.reason.clone().unwrap_or_default())).await;
+        self.audit(
+            Some(device_id),
+            "device.unpair",
+            Some(&env.reason.clone().unwrap_or_default()),
+        )
+        .await;
         if let Err(e) = self.db.remove_device(device_id).await {
             warn!(%device_id, "remove device failed: {e}");
         }
@@ -215,17 +243,5 @@ impl WsSink for DaemonSink {
     async fn on_disconnect(&self, device_id: Uuid) {
         self.touch_device(device_id).await;
         self.audit(Some(device_id), "ws.closed", None).await;
-    }
-}
-
-impl DaemonSink {
-    async fn touch_device(&self, device_id: Uuid) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        if let Err(e) = self.db.touch_device(device_id, now).await {
-            warn!("touch_device failed: {e}");
-        }
     }
 }

@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use utoipa::ToSchema;
 
 // ============================================================================
 // devices
 // ============================================================================
 
 /// One row of the `devices` table.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct DeviceRow {
     /// Auto-increment primary key.
     pub id: i64,
@@ -29,7 +30,7 @@ pub struct DeviceRow {
 // ============================================================================
 
 /// One row of the `pairings` table.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct PairingRow {
     /// Auto-increment primary key.
     pub id: i64,
@@ -48,7 +49,7 @@ pub struct PairingRow {
 // ============================================================================
 
 /// One row of the `notifications` table.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct NotificationRow {
     /// Per-device notification id.
     pub id: String,
@@ -105,7 +106,7 @@ impl SmsDirection {
 }
 
 /// One row of the `sms_messages` table.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct SmsRow {
     /// Per-device SMS id.
     pub id: String,
@@ -172,7 +173,7 @@ impl CallDirStr {
 }
 
 /// One row of the `calls` table.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct CallRow {
     /// Auto-increment primary key.
     pub id: i64,
@@ -201,7 +202,7 @@ pub struct CallRow {
 // ============================================================================
 
 /// One row of the `audit_log` table.
-#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize, ToSchema)]
 pub struct AuditLogRow {
     /// Auto-increment primary key.
     pub id: i64,
