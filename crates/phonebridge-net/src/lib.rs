@@ -2,6 +2,8 @@
 //!
 //! - [`mdns`]: browse for and advertise `_phonebridge._tcp` services.
 //! - [`pairing`]: pairing state machine for both initiator and responder roles.
+//! - [`registry`]: tracks currently-connected devices for downstream
+//!   sends (daemon → android).
 //! - [`ws_handler`]: per-connection envelope dispatcher (used by the daemon).
 //! - [`tls_pinning`]: validate an incoming WebSocket connection's client cert
 //!   against a stored fingerprint.
@@ -11,11 +13,16 @@
 
 pub mod mdns;
 pub mod pairing;
+pub mod registry;
 pub mod tls_pinning;
 pub mod ws_handler;
 
 pub use pairing::{Initiator, PairingError, PairingOutcome, Responder};
-pub use ws_handler::{DeviceSession, PairedSession, PairingMap, UnpairedSession, WsContext};
+pub use registry::{DeviceRegistry, DownstreamError};
+pub use ws_handler::{
+    ConnectionSink, DeviceSession, NoopSink, PairedSession, PairingMap, SinkError, UnpairedSession,
+    WsContext, WsSink,
+};
 
 /// A discovered device on the LAN (alias for the mDNS-discovered form).
 #[derive(Debug, Clone)]
@@ -48,19 +55,6 @@ pub enum NetError {
     /// Pairing state machine error.
     #[error("pairing: {0}")]
     Pairing(#[from] pairing::PairingError),
-}
-
-/// Result of parsing a single WebSocket text frame.
-#[derive(Debug)]
-pub enum FrameOutcome {
-    /// A valid envelope.
-    Envelope(phonebridge_proto::Envelope),
-    /// A ping — respond with a pong at the tungstenite layer.
-    Ping,
-    /// A pong — ignore.
-    Pong,
-    /// A close frame — propagate.
-    Close,
 }
 
 #[cfg(test)]

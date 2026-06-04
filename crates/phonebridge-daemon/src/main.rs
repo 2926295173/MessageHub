@@ -10,20 +10,11 @@ use clap::Parser;
 use tracing::info;
 use uuid::Uuid;
 
-mod app_state;
-mod cert_loader;
-mod identity;
-mod mdns_service;
-mod pair_cli;
-mod rest;
-mod static_files;
-mod tls;
-mod ws;
-
 use phonebridge_core::{config::Config, logging, paths::AppPaths};
 use phonebridge_storage::Db;
 
-use crate::app_state::AppState;
+use phonebridge_daemon::app_state::AppState;
+use phonebridge_daemon::ws::ws_upgrade;
 
 #[derive(Parser, Debug)]
 #[command(name = "phonebridge-daemon", version, about = "PhoneBridge desktop daemon")]
@@ -91,20 +82,22 @@ async fn main() -> anyhow::Result<()> {
     info!(db = %db_path.display(), "database ready");
 
     // Load or generate our long-term identity.
-    let id_module = identity::load_or_create(&paths, args.device_id, args.name.as_deref())
+    let id_module = phonebridge_daemon::identity::load_or_create(&paths, args.device_id, args.name.as_deref())
         .context("loading daemon identity")?;
     info!(device_id = %id_module.device_id, fingerprint = %id_module.fingerprint, name = %id_module.name, "daemon identity ready");
 
     // Optionally run a one-shot pairing against a peer and exit. Used by
     // the e2e smoke test and for manual debugging.
     if let Some(peer) = args.pair_with {
-        return crate::pair_cli::run(peer, id_module, Arc::new(config)).await;
+        return phonebridge_daemon::pair_cli::run(peer, id_module, Arc::new(config)).await;
     }
 
     // Build shared state.
+    let registry = phonebridge_net::DeviceRegistry::new();
     let state = AppState::new(
         Arc::new(config.clone()),
         Arc::new(db),
+        registry.clone(),
         id_module.device_id,
         id_module.public_key_b64,
         id_module.fingerprint,
@@ -114,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start mDNS in the background.
     if config.discovery.enabled {
-        match mdns_service::start(Arc::new(state.clone())) {
+        match phonebridge_daemon::mdns_service::start(Arc::new(state.clone())) {
             Ok(_mdns) => {
                 info!("mDNS service started");
             }
@@ -139,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
         None
     } else {
         Some(
-            cert_loader::load_or_generate(&cert_pem_path, &key_pem_path)
+            phonebridge_daemon::cert_loader::load_or_generate(&cert_pem_path, &key_pem_path)
                 .context("loading TLS identity")?,
         )
     };
@@ -158,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Run server.
     if let Some(id) = identity {
-        tls::serve_https(addr, app, id).await?;
+        phonebridge_daemon::tls::serve_https(addr, app, id).await?;
     } else {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
@@ -177,9 +170,9 @@ fn build_router(state: AppState) -> Router {
     use tower_http::trace::TraceLayer;
 
     Router::new()
-        .nest("/api/v1", rest::router())
-        .merge(static_files::router())
-        .route("/ws", axum::routing::get(ws::ws_upgrade))
+        .nest("/api/v1", phonebridge_daemon::rest::router())
+        .merge(phonebridge_daemon::static_files::router())
+        .route("/ws", axum::routing::get(ws_upgrade))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

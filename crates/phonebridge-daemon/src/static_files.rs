@@ -128,6 +128,7 @@ mod tests {
         AppState::new(
             std::sync::Arc::new(phonebridge_core::Config::default()),
             std::sync::Arc::new(db),
+            phonebridge_net::DeviceRegistry::new(),
             uuid::Uuid::new_v4(),
             "PUBKEYB64".into(),
             "DE:AD:BE:EF".repeat(8),

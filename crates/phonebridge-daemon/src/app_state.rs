@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use phonebridge_core::Config;
-use phonebridge_net::PairingMap;
+use phonebridge_net::{DeviceRegistry, PairingMap};
 use phonebridge_storage::Db;
 use uuid::Uuid;
 
@@ -19,6 +19,8 @@ pub struct AppState {
     pub pin_store: Arc<RwLock<std::collections::HashMap<Uuid, String>>>,
     /// In-flight pairing sessions.
     pub pairing: PairingMap,
+    /// Downstream send registry.
+    pub registry: DeviceRegistry,
     /// This daemon's stable UUIDv4 id (generated on first run, persisted).
     pub our_device_id: Uuid,
     /// Public key of the daemon's long-term cert (base64).
@@ -31,9 +33,11 @@ pub struct AppState {
 
 impl AppState {
     /// Construct a new state handle.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<Config>,
         db: Arc<Db>,
+        registry: DeviceRegistry,
         our_device_id: Uuid,
         our_public_key_b64: String,
         our_fingerprint: String,
@@ -44,6 +48,7 @@ impl AppState {
             db,
             pin_store: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pairing: PairingMap::new(),
+            registry,
             our_device_id,
             our_public_key_b64: Arc::new(RwLock::new(our_public_key_b64)),
             our_fingerprint: Arc::new(RwLock::new(our_fingerprint)),

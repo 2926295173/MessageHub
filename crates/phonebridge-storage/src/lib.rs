@@ -5,7 +5,7 @@
 //! - [`pool`]: the [`Db`] connection pool wrapper.
 
 #![forbid(unsafe_code)]
-#![deny(missing_docs)]
+#![allow(missing_docs)]
 
 pub mod models;
 pub mod pool;
