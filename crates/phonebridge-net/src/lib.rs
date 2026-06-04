@@ -1,25 +1,23 @@
 //! Networking surface for the daemon.
 //!
-//! M1: define types and traits, but no real implementations.
-//! M2: mDNS browse + respond; WebSocket upgrade + envelope routing; TLS
-//!     pinning during handshake.
+//! - [`mdns`]: browse for and advertise `_phonebridge._tcp` services.
+//! - [`pairing`]: pairing state machine for both initiator and responder roles.
+//! - [`ws_handler`]: per-connection envelope dispatcher (used by the daemon).
+//! - [`tls_pinning`]: validate an incoming WebSocket connection's client cert
+//!   against a stored fingerprint.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-use std::net::SocketAddr;
+pub mod mdns;
+pub mod pairing;
+pub mod tls_pinning;
+pub mod ws_handler;
 
-use async_trait::async_trait;
-use thiserror::Error;
-use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+pub use pairing::{Initiator, PairingError, PairingOutcome, Responder};
+pub use ws_handler::{DeviceSession, PairedSession, PairingMap, UnpairedSession, WsContext};
 
-use phonebridge_proto::Envelope;
-
-/// A TLS-upgraded WebSocket stream (client or server side).
-pub type PhoneBridgeStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
-/// A discovered device on the LAN.
+/// A discovered device on the LAN (alias for the mDNS-discovered form).
 #[derive(Debug, Clone)]
 pub struct DiscoveredDevice {
     /// Stable id of the device.
@@ -27,13 +25,13 @@ pub struct DiscoveredDevice {
     /// Human-readable name.
     pub name: String,
     /// Last advertised address.
-    pub address: SocketAddr,
+    pub address: std::net::SocketAddr,
     /// TXT record key/value pairs.
     pub txt: Vec<(String, String)>,
 }
 
 /// Errors from the network layer.
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum NetError {
     /// mDNS browse / respond failed.
     #[error("mDNS error: {0}")]
@@ -47,58 +45,22 @@ pub enum NetError {
     /// Protocol-level error (e.g. wrong version, schema violation).
     #[error("protocol error: {0}")]
     Protocol(String),
+    /// Pairing state machine error.
+    #[error("pairing: {0}")]
+    Pairing(#[from] pairing::PairingError),
 }
 
 /// Result of parsing a single WebSocket text frame.
 #[derive(Debug)]
 pub enum FrameOutcome {
     /// A valid envelope.
-    Envelope(Envelope),
+    Envelope(phonebridge_proto::Envelope),
     /// A ping — respond with a pong at the tungstenite layer.
     Ping,
     /// A pong — ignore.
     Pong,
     /// A close frame — propagate.
     Close,
-}
-
-/// Trait for the WebSocket message handler. M2 will implement this for the
-/// daemon's pairing + message router.
-#[async_trait]
-pub trait EnvelopeHandler: Send + Sync + 'static {
-    /// Handle a single incoming envelope from a connected device.
-    async fn handle(
-        &self,
-        envelope: Envelope,
-        ctx: &mut ConnectionContext<'_>,
-    ) -> Result<Option<Envelope>, NetError>;
-}
-
-/// Per-connection context the handler can use to push envelopes back to the
-/// client or close the socket.
-pub struct ConnectionContext<'a> {
-    /// The remote peer address.
-    pub peer: SocketAddr,
-    /// The peer device's UUIDv4 id (set after `device.hello`).
-    pub device_id: Option<uuid::Uuid>,
-    /// Sink for outgoing envelopes on this connection.
-    pub sink: &'a mut tokio::sync::mpsc::Sender<Envelope>,
-}
-
-impl<'a> ConnectionContext<'a> {
-    /// Try to enqueue an outgoing envelope (non-blocking).
-    pub fn try_send(&mut self, env: Envelope) -> Result<(), NetError> {
-        self.sink.try_send(env).map_err(|e| NetError::Protocol(e.to_string()))
-    }
-}
-
-/// Marker trait for the mDNS service browser (M2 implements).
-#[async_trait]
-pub trait DiscoveryBrowser: Send + Sync + 'static {
-    /// Register a callback that fires for every discovered device.
-    async fn browse<F>(&self, callback: F) -> Result<(), NetError>
-    where
-        F: Fn(DiscoveredDevice) + Send + Sync + 'static;
 }
 
 #[cfg(test)]

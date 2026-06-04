@@ -123,6 +123,61 @@ impl Db {
     }
 
     // ========================================================================
+    // pairings
+    // ========================================================================
+
+    /// Insert a pairing row. Caller is expected to also call
+    /// `upsert_device` + `mark_device_paired`.
+    pub async fn insert_pairing(
+        &self,
+        device_id: uuid::Uuid,
+        cert_pem: &str,
+        cert_fingerprint: &str,
+        paired_at: i64,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            r#"
+            INSERT INTO pairings (device_id, cert_pem, cert_fingerprint, paired_at)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(device_id) DO UPDATE SET
+                cert_pem = excluded.cert_pem,
+                cert_fingerprint = excluded.cert_fingerprint,
+                paired_at = excluded.paired_at
+            "#,
+        )
+        .bind(device_id)
+        .bind(cert_pem)
+        .bind(cert_fingerprint)
+        .bind(paired_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get a pairing row for a device, if any.
+    pub async fn get_pairing(
+        &self,
+        device_id: uuid::Uuid,
+    ) -> Result<Option<PairingRow>, DbError> {
+        let row = sqlx::query_as::<_, PairingRow>(
+            "SELECT id, device_id, cert_pem, cert_fingerprint, paired_at FROM pairings WHERE device_id = ?1",
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Mark a device as paired (called after a successful pairing completes).
+    pub async fn mark_device_paired(&self, device_id: uuid::Uuid) -> Result<(), DbError> {
+        sqlx::query("UPDATE devices SET paired = 1 WHERE device_id = ?1")
+            .bind(device_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ========================================================================
     // notifications
     // ========================================================================
 

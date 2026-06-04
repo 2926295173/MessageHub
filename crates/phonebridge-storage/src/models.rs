@@ -25,6 +25,25 @@ pub struct DeviceRow {
 }
 
 // ============================================================================
+// pairings
+// ============================================================================
+
+/// One row of the `pairings` table.
+#[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
+pub struct PairingRow {
+    /// Auto-increment primary key.
+    pub id: i64,
+    /// Paired device's UUIDv4 id.
+    pub device_id: uuid::Uuid,
+    /// PEM-encoded cert we pinned for the peer.
+    pub cert_pem: String,
+    /// SHA-256 fingerprint of the peer's cert.
+    pub cert_fingerprint: String,
+    /// When pairing completed (epoch seconds).
+    pub paired_at: i64,
+}
+
+// ============================================================================
 // notifications
 // ============================================================================
 

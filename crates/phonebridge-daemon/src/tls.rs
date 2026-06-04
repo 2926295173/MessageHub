@@ -34,7 +34,7 @@ pub async fn serve_https(addr: SocketAddr, app: Router, identity: Identity) -> R
 
     info!(%addr, "listening (HTTPS / TLS)");
     axum_server::bind_rustls(addr, rustls_cfg)
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .context("axum_server::bind_rustls")?;
     Ok(())

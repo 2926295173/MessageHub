@@ -8,12 +8,17 @@ use anyhow::Context;
 use axum::Router;
 use clap::Parser;
 use tracing::info;
+use uuid::Uuid;
 
 mod app_state;
 mod cert_loader;
+mod identity;
+mod mdns_service;
+mod pair_cli;
 mod rest;
 mod static_files;
 mod tls;
+mod ws;
 
 use phonebridge_core::{config::Config, logging, paths::AppPaths};
 use phonebridge_storage::Db;
@@ -29,10 +34,20 @@ struct Args {
     /// Override the bind address (e.g. `0.0.0.0:8443`).
     #[arg(long)]
     bind: Option<String>,
-    /// Skip TLS (use plain HTTP/WS). Only for development; refuse if a paired
-    /// device is present in the database.
+    /// Skip TLS (use plain HTTP/WS). Only for development.
     #[arg(long)]
     no_tls: bool,
+    /// Run a one-shot pairing handshake against `addr` (e.g. `192.168.1.5:8443`)
+    /// and exit. Used by `scripts/e2e-smoke.sh` to verify the wire protocol.
+    #[arg(long)]
+    pair_with: Option<SocketAddr>,
+    /// Our device id (UUIDv4). If omitted, a persistent one is read from
+    /// `{data_dir}/device_id` or generated and saved.
+    #[arg(long)]
+    device_id: Option<Uuid>,
+    /// Our display name. Defaults to the host's hostname.
+    #[arg(long)]
+    name: Option<String>,
 }
 
 #[tokio::main]
@@ -40,9 +55,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Install the rustls process-level CryptoProvider (ring backend) before
-    // any TLS code runs. Required by rustls 0.23 when both `ring` and
-    // `aws_lc_rs` features are reachable. We ignore the error: it just means
-    // a provider was already installed.
+    // any TLS code runs.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     // Resolve config + data paths early so we can pass them around.
@@ -77,7 +90,41 @@ async fn main() -> anyhow::Result<()> {
     db.migrate().await.context("running migrations")?;
     info!(db = %db_path.display(), "database ready");
 
-    // Load or generate TLS identity.
+    // Load or generate our long-term identity.
+    let id_module = identity::load_or_create(&paths, args.device_id, args.name.as_deref())
+        .context("loading daemon identity")?;
+    info!(device_id = %id_module.device_id, fingerprint = %id_module.fingerprint, name = %id_module.name, "daemon identity ready");
+
+    // Optionally run a one-shot pairing against a peer and exit. Used by
+    // the e2e smoke test and for manual debugging.
+    if let Some(peer) = args.pair_with {
+        return crate::pair_cli::run(peer, id_module, Arc::new(config)).await;
+    }
+
+    // Build shared state.
+    let state = AppState::new(
+        Arc::new(config.clone()),
+        Arc::new(db),
+        id_module.device_id,
+        id_module.public_key_b64,
+        id_module.fingerprint,
+        id_module.name,
+    );
+    let app = build_router(state.clone());
+
+    // Start mDNS in the background.
+    if config.discovery.enabled {
+        match mdns_service::start(Arc::new(state.clone())) {
+            Ok(_mdns) => {
+                info!("mDNS service started");
+            }
+            Err(e) => {
+                tracing::warn!("mDNS service failed to start: {e}");
+            }
+        }
+    }
+
+    // Load or generate TLS identity for the server.
     let cert_pem_path = if config.server.cert_path.is_empty() {
         paths.cert_file()
     } else {
@@ -102,10 +149,6 @@ async fn main() -> anyhow::Result<()> {
         info!("TLS disabled (--no-tls)");
     }
 
-    // Build shared state.
-    let state = AppState::new(Arc::new(config.clone()), Arc::new(db));
-    let app = build_router(state);
-
     // Parse bind address.
     let addr: SocketAddr = config
         .server
@@ -121,7 +164,9 @@ async fn main() -> anyhow::Result<()> {
             .await
             .with_context(|| format!("binding to {addr}"))?;
         info!(%addr, "listening (plain HTTP)");
-        axum::serve(listener, app).await.context("axum::serve")?;
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+            .context("axum::serve")?;
     }
 
     Ok(())
@@ -134,6 +179,7 @@ fn build_router(state: AppState) -> Router {
     Router::new()
         .nest("/api/v1", rest::router())
         .merge(static_files::router())
+        .route("/ws", axum::routing::get(ws::ws_upgrade))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

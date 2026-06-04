@@ -24,6 +24,8 @@ phonebridge-storage = { path = "../phonebridge-storage" }
 phonebridge-bus = { path = "../phonebridge-bus" }
 phonebridge-net = { path = "../phonebridge-net" }
 
+parking_lot.workspace = true
+
 tokio.workspace = true
 axum.workspace = true
 axum-server = { version = "0.7", features = ["tls-rustls"] }
@@ -32,11 +34,14 @@ tower-http.workspace = true
 hyper.workspace = true
 http.workspace = true
 http-body-util.workspace = true
+futures.workspace = true
 
 rustls.workspace = true
 ring.workspace = true
 rustls-pemfile = "2"
 base64.workspace = true
+mdns-sd.workspace = true
+tokio-tungstenite.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true

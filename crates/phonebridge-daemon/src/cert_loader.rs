@@ -54,25 +54,24 @@ pub fn load_or_generate(cert_pem: &Path, key_pem: &Path) -> Result<Identity> {
 /// Extract the first DER CERTIFICATE blob from a PEM file.
 fn pem_to_der(pem_str: &str) -> Result<Vec<u8>> {
     use base64::Engine;
-    let mut in_cert = false;
-    let mut b64 = String::new();
-    for line in pem_str.lines() {
-        let line = line.trim();
-        if line.contains("BEGIN CERTIFICATE") {
-            in_cert = true;
-            continue;
+        let mut in_cert = false;
+        let mut b64 = String::new();
+        for line in pem_str.lines() {
+            let line = line.trim();
+            if line.contains("BEGIN CERTIFICATE") {
+                in_cert = true;
+                continue;
+            }
+            if line.contains("END CERTIFICATE") {
+                break;
+            }
+            if in_cert {
+                b64.push_str(line);
+            }
         }
-        if line.contains("END CERTIFICATE") {
-            in_cert = false;
-            break;
+        if b64.is_empty() {
+            anyhow::bail!("no CERTIFICATE block found");
         }
-        if in_cert {
-            b64.push_str(line);
-        }
-    }
-    if b64.is_empty() {
-        anyhow::bail!("no CERTIFICATE block found");
-    }
     let der = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .context("base64 decoding cert body")?;
