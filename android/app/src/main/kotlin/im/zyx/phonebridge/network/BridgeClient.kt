@@ -62,13 +62,13 @@ sealed interface BridgeStatus {
  * - Pairing is driven from outside; this class is a transport.
  */
 @Singleton
-class BridgeClient @Inject constructor() {
+open class BridgeClient @Inject constructor() {
 
     private val _status = MutableStateFlow<BridgeStatus>(BridgeStatus.Disconnected)
     val status: StateFlow<BridgeStatus> = _status.asStateFlow()
 
     private val _incoming = MutableSharedFlow<Envelope>(extraBufferCapacity = 64)
-    val incoming: SharedFlow<Envelope> = _incoming.asSharedFlow()
+    open val incoming: SharedFlow<Envelope> = _incoming.asSharedFlow()
 
     private val outgoing = Channel<Envelope>(capacity = 64)
     private val running = AtomicBoolean(false)
@@ -76,20 +76,20 @@ class BridgeClient @Inject constructor() {
     private val scope = CoroutineScope(Dispatchers.IO + supervisor)
     private var loopJob: Job? = null
 
-    fun start(initialHost: String, initialPort: Int, pinnedFingerprint: String?) {
+    open fun start(initialHost: String, initialPort: Int, pinnedFingerprint: String?) {
         if (!running.compareAndSet(false, true)) return
         loopJob?.cancel()
         loopJob = scope.launch { runLoop(initialHost, initialPort, pinnedFingerprint) }
     }
 
-    fun stop() {
+    open fun stop() {
         running.set(false)
         loopJob?.cancel()
         loopJob = null
         _status.value = BridgeStatus.Disconnected
     }
 
-    fun send(envelope: Envelope) {
+    open fun send(envelope: Envelope) {
         val ok = outgoing.trySend(envelope).isSuccess
         if (!ok) Log.w(TAG, "outgoing channel full, dropping ${envelope.type}")
     }
@@ -193,7 +193,7 @@ class BridgeClient @Inject constructor() {
         }
     }
 
-    fun shutdown() {
+    open fun shutdown() {
         stop()
         scope.cancel()
     }

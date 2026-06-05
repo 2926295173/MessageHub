@@ -88,6 +88,9 @@ impl WsSink for DaemonSink {
         if let Err(e) = self.db.mark_notification_read(device_id, &env.id).await {
             warn!(%device_id, "mark notification read failed: {e}");
         }
+        if let Ok(e) = Envelope::new(MessageType::NotificationDismissed, device_id, env.clone()) {
+            self.publish_console(&e);
+        }
     }
 
     async fn on_sms_received(&self, device_id: Uuid, env: &SmsReceived) {

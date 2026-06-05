@@ -65,6 +65,15 @@ class SmsReceiverTest {
     }
 
     @Test
+    fun `parts list with only nulls returns null`() {
+        val env = SmsReceiver.buildSmsReceivedEnvelope(
+            parts = listOf(null, null),
+            ourDeviceId = "android-uuid-1"
+        )
+        assertNull(env)
+    }
+
+    @Test
     fun `null originating address returns null`() {
         val p = mockk<SmsMessage>()
         every { p.displayOriginatingAddress } returns null

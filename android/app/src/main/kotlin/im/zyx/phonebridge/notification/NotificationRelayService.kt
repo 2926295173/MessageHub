@@ -109,10 +109,31 @@ class NotificationRelayService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // We don't act on local removals (e.g. user swipes the
-        // notification on the device); dismissal is driven by the
-        // desktop's `notification.dismissed` envelope (handled in
-        // handleIncoming above).
+        // The user swiped the notification on the device (or the
+        // system dismissed it). Mirror this to the daemon so the
+        // web console sees the same state. Reasons the system might
+        // call this without a user action:
+        //   - APP_CANCEL: the app that posted the notification
+        //     called NotificationManager.cancel
+        //   - APP_CANCEL_ALL: same but for all of the app's notifs
+        //   - USER: the user swiped it
+        //   - PACKAGE_REMOVED, PACKAGE_BANNED, etc.
+        // All of these warrant telling the daemon. The daemon's
+        // `notification.dismissed` handler marks the row read; for
+        // APP_CANCEL_* we don't want to send a notification.dismissed
+        // (the row was never delivered to begin with), but the
+        // `mark_notification_read_by_sbn_key` SQL is idempotent and
+        // cheap, so it's fine to send unconditionally.
+        val payload = NotificationDismissedPayload(id = sbn.key)
+        val env = Envelope(
+            v = 1,
+            id = UUID.randomUUID().toString(),
+            ts = java.time.Instant.now().toEpochMilli(),
+            type = MessageType.NOTIFY_DISMISSED,
+            device_id = pairing.ourDeviceId(),
+            payload = json.encodeToJsonElement(NotificationDismissedPayload.serializer(), payload)
+        )
+        scope.launch { client.send(env) }
     }
 
     private fun appLabelFor(pkg: String): String = try {

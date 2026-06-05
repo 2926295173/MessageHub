@@ -41,6 +41,18 @@ class SmsReceiver : BroadcastReceiver() {
     @Inject lateinit var client: BridgeClient
     @Inject lateinit var pairing: PairingMachine
 
+    /**
+     * Test-only injection helper. Lets instrumented tests construct
+     * a [SmsReceiver] and inject a [BridgeClient] / [PairingMachine]
+     * directly, without going through the Hilt test graph (which
+     * can't easily replace `@Inject constructor()` bindings from
+     * the main source set).
+     */
+    fun injectForTest(client: BridgeClient, pairing: PairingMachine) {
+        this.client = client
+        this.pairing = pairing
+    }
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -61,16 +73,19 @@ class SmsReceiver : BroadcastReceiver() {
          * concatenate bodies + use the first part's address) and
          * build the [Envelope] to send to the daemon.
          *
-         * Returns null if [parts] is empty.
+         * Returns null if [parts] is empty (after dropping any
+         * nulls that the framework may have inserted).
          */
         fun buildSmsReceivedEnvelope(
-            parts: List<android.telephony.SmsMessage>,
+            parts: List<android.telephony.SmsMessage?>,
             ourDeviceId: String,
         ): Envelope? {
-            if (parts.isEmpty()) return null
-            val sender = parts.first().displayOriginatingAddress ?: return null
-            val body = parts.joinToString(separator = "") { it.displayMessageBody.orEmpty() }
-            val receivedAt = parts.first().timestampMillis
+            val real = parts.filterNotNull()
+            if (real.isEmpty()) return null
+            val first = real.first()
+            val sender = first.displayOriginatingAddress ?: return null
+            val body = real.joinToString(separator = "") { it.displayMessageBody.orEmpty() }
+            val receivedAt = first.timestampMillis
             val payload = SmsReceivedPayload(
                 id = UUID.randomUUID().toString(),
                 address = sender,
