@@ -28,6 +28,12 @@ private const val TAG = "SmsReceiver"
  * Rust `SmsReceived` struct.
  *
  * Permissions: RECEIVE_SMS (granted at runtime).
+ *
+ * The actual SMS parsing is done by the Android Telephony stack
+ * (`Telephony.Sms.Intents.getMessagesFromIntent`); this receiver
+ * just groups multipart SMS, builds the envelope, and dispatches
+ * via the [BridgeClient]. The pure envelope-building logic lives
+ * in [buildSmsReceivedEnvelope] for unit testing.
  */
 @AndroidEntryPoint
 class SmsReceiver : BroadcastReceiver() {
@@ -40,27 +46,47 @@ class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
-        val sender = messages.firstOrNull()?.displayOriginatingAddress ?: return
-        val body = messages.joinToString(separator = "") { it.displayMessageBody.orEmpty() }
-        val receivedAt = messages.firstOrNull()?.timestampMillis ?: System.currentTimeMillis()
-
-        val payload = SmsReceivedPayload(
-            id = UUID.randomUUID().toString(),
-            address = sender,
-            body = body,
-            received_at = receivedAt,
-            sim_slot = null,
-            subscription_id = null
-        )
-        val env = Envelope(
-            v = 1,
-            id = UUID.randomUUID().toString(),
-            ts = Instant.ofEpochMilli(receivedAt).toEpochMilli(),
-            type = MessageType.SMS_RECEIVED,
-            device_id = pairing.ourDeviceId(),
-            payload = json.encodeToJsonElement(SmsReceivedPayload.serializer(), payload)
-        )
+        val env = buildSmsReceivedEnvelope(
+            parts = messages.toList(),
+            ourDeviceId = pairing.ourDeviceId(),
+        ) ?: return
         scope.launch { client.send(env) }
-        Log.d(TAG, "forwarded SMS from $sender (${body.length} chars)")
+        Log.d(TAG, "forwarded SMS from ${env.payload}")
+    }
+
+    companion object {
+        /**
+         * Pure function: take the parsed [Telephony.SmsMessage]
+         * parts (a multipart SMS arrives as multiple parts; we
+         * concatenate bodies + use the first part's address) and
+         * build the [Envelope] to send to the daemon.
+         *
+         * Returns null if [parts] is empty.
+         */
+        fun buildSmsReceivedEnvelope(
+            parts: List<android.telephony.SmsMessage>,
+            ourDeviceId: String,
+        ): Envelope? {
+            if (parts.isEmpty()) return null
+            val sender = parts.first().displayOriginatingAddress ?: return null
+            val body = parts.joinToString(separator = "") { it.displayMessageBody.orEmpty() }
+            val receivedAt = parts.first().timestampMillis
+            val payload = SmsReceivedPayload(
+                id = UUID.randomUUID().toString(),
+                address = sender,
+                body = body,
+                received_at = receivedAt,
+                sim_slot = null,
+                subscription_id = null
+            )
+            return Envelope(
+                v = 1,
+                id = UUID.randomUUID().toString(),
+                ts = Instant.ofEpochMilli(receivedAt).toEpochMilli(),
+                type = MessageType.SMS_RECEIVED,
+                device_id = ourDeviceId,
+                payload = json.encodeToJsonElement(SmsReceivedPayload.serializer(), payload)
+            )
+        }
     }
 }

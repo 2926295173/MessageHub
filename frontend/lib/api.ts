@@ -159,6 +159,11 @@ export const api = {
     request<void>(`/notifications/${device_id}/${encodeURIComponent(id)}/read`, {
       method: "POST",
     }),
+  dismissNotification: (device_id: string, id: string) =>
+    request<{ status: string; device_id: string; id: string; broadcast: boolean }>(
+      `/notifications/${device_id}/${encodeURIComponent(id)}/dismiss`,
+      { method: "POST" }
+    ),
   sms: (params?: { device_id?: string; phone_number?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.device_id) q.set("device_id", params.device_id);

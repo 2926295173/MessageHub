@@ -285,6 +285,29 @@ impl Db {
         Ok(())
     }
 
+    /// Mark a notification as dismissed on the daemon side and
+    /// return the row's `id` (which is the Android
+    /// `StatusBarNotification.key`) so the caller can broadcast a
+    /// `notification.dismissed` envelope to the device. Returns
+    /// None if the row doesn't exist.
+    pub async fn dismiss_notification(
+        &self,
+        device_id: uuid::Uuid,
+        notification_id: &str,
+    ) -> Result<Option<String>, DbError> {
+        use sqlx::Row;
+        let row = sqlx::query(
+            "UPDATE notifications SET read = 1 \
+             WHERE device_id = ?1 AND id = ?2 \
+             RETURNING id",
+        )
+        .bind(device_id)
+        .bind(notification_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.get::<String, _>("id")))
+    }
+
     /// Count unread notifications across all (or one) device.
     pub async fn count_unread_notifications(
         &self,

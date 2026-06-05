@@ -68,6 +68,10 @@ pub fn router() -> Router<AppState> {
             post(mark_notification_read),
         )
         .route(
+            "/notifications/:device_id/:id/dismiss",
+            post(dismiss_notification),
+        )
+        .route(
             "/notifications/mark-all-read",
             post(mark_all_notifications_read),
         )
@@ -682,6 +686,82 @@ async fn mark_notification_read(
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response();
     }
     (StatusCode::NO_CONTENT, "").into_response()
+}
+
+/// `POST /api/v1/notifications/{device_id}/{id}/dismiss` — mark a
+/// notification as dismissed in the daemon DB and broadcast a
+/// `notification.dismissed` envelope to the device. The device's
+/// `NotificationListenerService` then calls `cancelNotification(key)`
+/// to remove it from the system shade.
+#[utoipa::path(
+    post,
+    path = "/api/v1/notifications/{device_id}/{id}/dismiss",
+    tag = "notifications",
+    params(
+        ("device_id" = Uuid, Path, description = "Device id"),
+        ("id" = String, Path, description = "Notification id (per-device; the sbn.key)"),
+    ),
+    responses(
+        (status = 200, description = "Marked dismissed and broadcast to device if connected"),
+        (status = 404, description = "Notification not found"),
+    )
+)]
+async fn dismiss_notification(
+    State(state): State<AppState>,
+    Path((device_id, id)): Path<(Uuid, String)>,
+) -> impl IntoResponse {
+    let row = match state.db.dismiss_notification(device_id, &id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "notification not found", "device_id": device_id, "id": id})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("db: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    // Build + send a notification.dismissed envelope to the device.
+    let payload = phonebridge_proto::NotificationDismissed { id: row.clone() };
+    let env = match phonebridge_proto::Envelope::new(
+        phonebridge_proto::MessageType::NotificationDismissed,
+        state.our_device_id,
+        payload,
+    ) {
+        Ok(e) => e,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("build envelope: {e}"),
+            )
+                .into_response();
+        }
+    };
+    let broadcast_ok = match state.registry.try_send(device_id, env).await {
+        Ok(()) => true,
+        Err(e) => {
+            warn!(%device_id, "dismiss broadcast failed: {e}");
+            false
+        }
+    };
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "dismissed",
+            "device_id": device_id,
+            "id": row,
+            "broadcast": broadcast_ok,
+        })),
+    )
+        .into_response()
 }
 
 #[utoipa::path(
@@ -1308,5 +1388,95 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), S::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn dismiss_notification_marks_read_and_returns_row() {
+        use phonebridge_storage::models::NotificationRow;
+        let state = make_state().await;
+        // Seed a device + a notification row.
+        let device_id = Uuid::new_v4();
+        let notif_id = "tag-1".to_string();
+        state
+            .db
+            .upsert_device(&DeviceRow {
+                id: 0,
+                name: "test".into(),
+                device_id,
+                public_key: "AAAA".into(),
+                last_seen: 1,
+                paired: false,
+            })
+            .await
+            .unwrap();
+        state
+            .db
+            .insert_notification(
+                &NotificationRow {
+                    id: notif_id.clone(),
+                    device_id,
+                    package_name: "com.example".into(),
+                    app_name: Some("Test".into()),
+                    title: "hello".into(),
+                    content: "world".into(),
+                    posted_at: 1,
+                    is_sensitive: false,
+                    category: None,
+                    read: false,
+                },
+            )
+            .await
+            .unwrap();
+            let app = router().with_state(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/notifications/{}/{}/dismiss",
+                        device_id, notif_id
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), S::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let j: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(j["status"], "dismissed");
+        assert_eq!(j["device_id"], device_id.to_string());
+        assert_eq!(j["id"], notif_id);
+        // broadcast=false because no WS connection is registered.
+        assert_eq!(j["broadcast"], false);
+
+        // Verify the row is now read=true.
+        let rows = state
+            .db
+            .list_notifications(Some(device_id), 50, false, None)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].read);
+    }
+
+    #[tokio::test]
+    async fn dismiss_notification_returns_404_when_missing() {
+        let state = make_state().await;
+        let app = router().with_state(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/notifications/{}/does-not-exist/dismiss",
+                        Uuid::new_v4()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), S::NOT_FOUND);
     }
 }

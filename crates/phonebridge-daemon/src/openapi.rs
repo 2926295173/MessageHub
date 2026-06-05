@@ -55,6 +55,7 @@ use crate::rest::{
         crate::rest::notifications_stats,
         crate::rest::mark_notification_read,
         crate::rest::mark_all_notifications_read,
+        crate::rest::dismiss_notification,
         crate::rest::list_sms,
         crate::rest::list_sms_conversations,
         crate::rest::send_sms,

@@ -32,6 +32,16 @@ export default function NotificationsPage() {
       api.markNotificationRead(device_id, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });
+  const dismiss = useMutation({
+    mutationFn: ({ device_id, id }: { device_id: string; id: string }) =>
+      api.dismissNotification(device_id, id),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+      // Soft feedback in the console; the device side does the work.
+      // eslint-disable-next-line no-console
+      console.log(`[phonebridge] dismissed ${data.id} (broadcast=${data.broadcast})`);
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -39,7 +49,8 @@ export default function NotificationsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Notifications</h1>
           <p className="text-sm text-base-content/60">
-            All notifications synced from your Android devices.
+            All notifications synced from your Android devices. Click <b>Dismiss</b> to
+            remove a notification from the device (also marks it read on the daemon).
           </p>
         </div>
         <div className="text-sm">
@@ -111,17 +122,28 @@ export default function NotificationsPage() {
                     {n.is_sensitive ? <em>(content hidden)</em> : n.content}
                   </div>
                 </div>
-                <div>
+                <div className="flex flex-col gap-1 items-end">
                   {!n.read && (
                     <button
                       className="btn btn-ghost btn-xs"
                       onClick={() =>
                         markRead.mutate({ device_id: n.device_id, id: n.id })
                       }
+                      disabled={markRead.isPending}
                     >
                       Mark read
                     </button>
                   )}
+                  <button
+                    className="btn btn-error btn-xs"
+                    onClick={() =>
+                      dismiss.mutate({ device_id: n.device_id, id: n.id })
+                    }
+                    disabled={dismiss.isPending}
+                    title="Sends notification.dismissed to the device"
+                  >
+                    {dismiss.isPending ? "Dismissing…" : "Dismiss"}
+                  </button>
                 </div>
               </div>
             </div>
