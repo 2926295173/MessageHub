@@ -4,7 +4,7 @@ LAN-side mobile half of [PhoneBridge](../). Pairs with the desktop
 daemon, mirrors notifications, forwards SMS, and exposes call control
 over a persistent TLS WebSocket.
 
-## Status: M5
+## Status: M6 (hardening)
 
 | Capability | Status |
 |---|---|
@@ -12,18 +12,21 @@ over a persistent TLS WebSocket.
 | Foreground service owning the WebSocket | done |
 | mDNS browser (NsdManager) for `_phonebridge._tcp` | done |
 | TLS WebSocket client (Ktor 2 + OkHttp) | done |
-| Pairing state machine (6-digit code, no crypto yet) | done |
+| Pairing state machine with ECDH P-256 + HKDF-SHA256 6-digit code | done |
+| Long-term identity in Android Keystore (`phonebridge.identity.v1`) | done |
+| TLS fingerprint pinning (stored + enforced) | done |
 | NotificationListenerService -> daemon | done |
-| SmsReceiver (RECEIVE_SMS) -> daemon | done |
+| Reverse dismissal: swipe / system cancel -> `notification.dismissed` | done |
+| SmsReceiver (RECEIVE_SMS) -> daemon, null-safe | done |
 | Call state listener (Telephony) -> daemon | done |
 | TelecomManager.answerRingingCall / endCall | done |
 | SmsManager.sendTextMessage for sms.send | done |
-| Compose UI: PermissionsScreen, PairingScreen, SettingsScreen | done |
+| Compose UI: PermissionsScreen, PairingScreen (mDNS + manual IP), SettingsScreen | done |
 | Hilt DI | done |
-| DataStore prefs (last desktop, fingerprint) | done |
-| Unit tests: 2 (envelope) + 6 (pairing) = 8 | done |
+| DataStore prefs (last desktop, fingerprint, cert) | done |
+| Unit tests: 34 (envelope, ECDH, HKDF, pairing code, cert gen, pairing machine, SMS receiver) | done |
 | Debug APK | builds: ~19 MB, package `im.zyx.phonebridge.debug` |
-| End-to-end with real daemon on real device | **TODO M5+** |
+| End-to-end with real daemon on real device (LAN) | done |
 
 ## Build
 
@@ -96,23 +99,31 @@ android/
 
 - **TLS**: every connection is `wss://`; the daemon's self-signed
   cert fingerprint is fetched from `GET /api/v1/cert` and pinned in
-  the next release. M5 ships a stub: the connection is established
-  over TLS but the fingerprint pin is not yet enforced in the
-  client (it is stored, but the comparison is not active). M5+
-  enables pinning in `BridgeClient.runOnce`.
-- **Pairing code**: 6 decimal digits, generated locally. M5+ will
-  derive this from HKDF-SHA256 to match the Rust side; for now it's
-  a 6-digit `Random` string.
+  `BridgeClient.runOnce` before the WebSocket upgrade. On a mismatch
+  the connection is refused and the user is prompted to re-pair.
+- **Pairing code**: 6 decimal digits derived from HKDF-SHA256 of the
+  ECDH shared secret (salt = `phonebridge/v1/pair`, info =
+  `phonebridge/v1/code`, 4-byte OKM, then 6 decimal digits). The
+  Rust side (`phonebridge-crypto/pairing_code.rs`) and the Kotlin
+  side (`core/crypto/PairingCode.kt`) agree byte-for-byte, so the
+  user sees the same code on both devices.
+- **Long-term identity**: the P-256 keypair lives in
+  `AndroidKeyStore` under the alias `phonebridge.identity.v1`; the
+  private key is non-extractable on devices with a TEE/StrongBox.
+  ECDH `agree()` runs inside the Keystore. The X.509 self-signed cert
+  and its SHA-256 fingerprint are persisted in DataStore, and the
+  pubkey of the stored cert is verified against the live Keystore
+  pubkey on every load so the fingerprint stays stable across
+  process restarts.
 - **Foreground service**: `connectedDevice` type on Android 14+,
   ongoing low-priority notification.
 
-## Known limitations (M5)
+## Known limitations (M6)
 
 - Only one desktop can be paired at a time.
-- Notification mirroring is one-way (Android → desktop). Reverse
-  dismissal is a M5+ feature.
-- TLS fingerprint pinning is not yet enforced; M5+ activates the
-  comparison in `BridgeClient.runOnce`.
+- Notification mirroring is bidirectional: Android posts to the
+  daemon, and `notification.dismissed` flows back so swipe-to-dismiss
+  on the phone keeps the desktop view in sync.
 - SmsReceiver is registered in the manifest and runs without a
   foreground service; the daemon-side `sms.send` command requires
   the persistent WS connection to be up.

@@ -2,7 +2,7 @@
 
 > LAN-first, self-hosted, cross-platform bridge to manage multiple Android phones from a single desktop daemon.
 
-**Status:** 🚧 Pre-alpha / under active development. MVP scope: device pairing, notification sync, SMS send/receive, call control. Milestones: M0 ✅ scaffold · M1 ✅ daemon · M2 ✅ discovery/pairing/WS · M3 ✅ business channels · M4 ✅ CI/OpenAPI/live push · **M5 ✅ Android client** · M6 hardening.
+**Status:** 🚧 Pre-alpha / under active development. MVP scope: device pairing, notification sync, SMS send/receive, call control. Milestones: M0 ✅ scaffold · M1 ✅ daemon · M2 ✅ discovery/pairing/WS · M3 ✅ business channels · M4 ✅ CI/OpenAPI/live push · M5 ✅ Android client · **M6 hardening** (Android Keystore identity, swipe-to-dismiss reverse channel, robust SmsReceiver, persistent WS).
 
 ## What it is
 
@@ -49,7 +49,7 @@ mykdeconnect/
 - **Android:** device registration, LAN discovery (mDNS), pairing (6-digit code, ECDH), notification listening, SMS receive/send, call state monitoring, answer/hang-up.
 - **Desktop:** device management, WebSocket connection management, notification center, SMS center, call control, pairing management, embedded web console.
 
-Out of scope (architecture must accommodate, but no implementation): plugin system, ADB control, AI auto-classification, automation rules, webhooks, Telegram bot, Home Assistant, OpenAPI, multi-user, remote gateway.
+Out of scope (architecture must accommodate, but no implementation): plugin system, ADB control, AI auto-classification, automation rules, webhooks, Telegram bot, Home Assistant, multi-user, remote gateway.
 
 ## Quick start (development)
 
