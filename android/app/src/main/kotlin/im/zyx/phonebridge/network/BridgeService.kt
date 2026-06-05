@@ -21,14 +21,21 @@ import im.zyx.phonebridge.core.protocol.json
 import im.zyx.phonebridge.data.PrefsRepository
 import im.zyx.phonebridge.pairing.PairingMachine
 import im.zyx.phonebridge.ui.MainActivity
+import java.security.MessageDigest
 import java.time.Instant
 import javax.inject.Inject
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 private const val TAG = "BridgeService"
 
@@ -36,14 +43,20 @@ private const val TAG = "BridgeService"
  * Long-lived foreground service that owns the [BridgeClient] connection.
  *
  * On start it:
- *  1. Reads the last known desktop host/port + cert fingerprint from
- *     [PrefsRepository] and kicks the client off.
- *  2. Sends `device.hello` right after the TLS-WS upgrade so the
- *     daemon inserts a Responder session keyed by our device id.
- *  3. Dispatches every incoming envelope: pairing messages go to
+ *  1. Loads the persisted device id and long-term keypair (via
+ *     [PairingMachine] / [PrefsRepository]).
+ *  2. Reads the last known desktop host/port from prefs. If present,
+ *     and we don't yet have a daemon fingerprint pinned, fetches
+ *     `https://host:port/api/v1/cert` and stores the SHA-256
+ *     fingerprint in prefs (TOFU pinning).
+ *  3. Starts the [BridgeClient], which now pins the cert by
+ *     fingerprint and refuses to connect if the daemon rotates its
+ *     self-signed cert.
+ *  4. On Connected transition, sends `device.hello` with the
+ *     device's stable identity.
+ *  5. Dispatches every incoming envelope: pairing messages go to
  *     [PairingMachine]; the rest are logged.
- *  4. Posts a low-priority persistent notification so the user can
- *     see the bridge is up.
+ *  6. Posts a low-priority persistent notification.
  */
 @AndroidEntryPoint
 class BridgeService : LifecycleService() {
@@ -90,9 +103,22 @@ class BridgeService : LifecycleService() {
                         is BridgeStatus.Disconnected -> "Idle"
                         is BridgeStatus.Connecting -> "Connecting to ${s.host}:${s.port}"
                         is BridgeStatus.Connected -> {
-                            // Send hello on first Connected transition.
                             sendHello()
-                            "Connected to ${s.host}:${s.port}"
+                            // TOFU persistence: if we connected without a
+                            // pinned fingerprint, persist the captured one
+                            // so future reconnects enforce pinning. The
+                            // combine() in kickoff() will see the new value
+                            // and re-emit, but client.start is idempotent
+                            // (early-returns if already running).
+                            val s2 = s as BridgeStatus.Connected
+                            if (s2.fingerprint.isNotEmpty()) {
+                                val cur = runBlocking { prefs.fingerprint.first() }
+                                if (cur.isNullOrBlank()) {
+                                    Log.i(TAG, "TOFU: persisting fp=${s2.fingerprint}")
+                                    runBlocking { prefs.setFingerprint(s2.fingerprint) }
+                                }
+                            }
+                            "Connected to ${s2.host}:${s2.port}"
                         }
                         is BridgeStatus.Error -> "Error: ${s.message}"
                     }
@@ -107,7 +133,7 @@ class BridgeService : LifecycleService() {
         }
     }
 
-    private fun handleIncoming(env: Envelope) {
+    private suspend fun handleIncoming(env: Envelope) {
         when (env.type) {
             MessageType.DEVICE_PAIR_REQUEST -> {
                 val reply = pairing.onRequest(env) ?: return
@@ -129,13 +155,12 @@ class BridgeService : LifecycleService() {
     }
 
     private fun kickoff() {
-        // Persist the device id the first time we run.
-        lifecycleScope.launch {
-            val saved = prefs.deviceId.first()
-            if (saved == null) prefs.setDeviceId(pairing.ourDeviceId())
-        }
         // Wait until the user has stored a desktop host/port in prefs
-        // (PairingScreen writes it after a successful mDNS resolve).
+        // (PairingScreen writes it after a successful NSD resolve or
+        // manual entry). When the fingerprint is null we let the
+        // client TOFU-capture and persist on the first Connected
+        // transition; the combine() re-emits and we then start with
+        // the pinned fingerprint.
         lifecycleScope.launch {
             combine(
                 prefs.desktopHost,
@@ -193,7 +218,7 @@ class BridgeService : LifecycleService() {
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setOngoing(true)
-            .setContentIntent(pi)
+                       .setContentIntent(pi)
             .build()
         val nm = NotificationManagerCompat.from(this)
         if (nm.areNotificationsEnabled()) nm.notify(NOTIF_ID, n)

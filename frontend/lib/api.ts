@@ -132,6 +132,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ device_id }),
     }),
+  acceptPair: (device_id: string, code?: string) =>
+    request<{ status: string; device_id: string }>("/pair/accept", {
+      method: "POST",
+      body: JSON.stringify({ device_id, ...(code ? { code } : {}) }),
+    }),
+  rejectPair: (device_id: string, reason?: string) =>
+    request<{ status: string; device_id: string; reason: string }>("/pair/reject", {
+      method: "POST",
+      body: JSON.stringify({ device_id, reason }),
+    }),
   notifications: (params?: { device_id?: string; limit?: number; package?: string; unread_only?: boolean }) => {
     const q = new URLSearchParams();
     if (params?.device_id) q.set("device_id", params.device_id);

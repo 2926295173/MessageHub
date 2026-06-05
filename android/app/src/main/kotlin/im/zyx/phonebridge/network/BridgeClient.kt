@@ -3,6 +3,26 @@ package im.zyx.phonebridge.network
 import android.util.Log
 import im.zyx.phonebridge.core.protocol.Envelope
 import im.zyx.phonebridge.core.protocol.json
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.client.request.url
+import io.ktor.websocket.DefaultWebSocketSession
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import io.ktor.websocket.send
+import okhttp3.OkHttpClient
+import java.security.MessageDigest
+import java.security.cert.X509Certificate
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import javax.inject.Inject
+import javax.inject.Singleton
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,25 +37,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.encodeToString
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.webSocketSession
-import io.ktor.client.request.url
-import io.ktor.websocket.DefaultWebSocketSession
-import io.ktor.websocket.Frame
-import io.ktor.websocket.readText
-import io.ktor.websocket.send
-import okhttp3.OkHttpClient
-import java.security.cert.X509Certificate
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 import kotlinx.serialization.encodeToString
 
 private const val TAG = "BridgeClient"
@@ -116,16 +117,20 @@ class BridgeClient @Inject constructor() {
     }
 
     private suspend fun runOnce(host: String, port: Int, pinnedFingerprint: String?) {
-        // M5+ TODO: replace AcceptAnyTrustManager with fingerprint-based
-        // pinning: read the daemon's cert from /api/v1/cert, store the
-        // SHA-256 fingerprint in PrefsRepository, and verify on every
-        // connect. For MVP we accept any TLS cert.
-        val trustAll = arrayOf<TrustManager>(AcceptAnyTrustManager)
-        val sslCtx = SSLContext.getInstance("TLS").apply { init(null, trustAll, null) }
+        // M5+ fingerprint pinning with TOFU semantics:
+        //   - First connect: pinnedFingerprint is null; we capture the
+        //     peer's cert and report it via BridgeStatus.Connected so
+        //     the caller (BridgeService) can persist it.
+        //   - Subsequent connects: pinnedFingerprint is the value
+        //     stored in PrefsRepository. We verify the captured cert's
+        //     SHA-256 against it; mismatch -> SecurityException.
+        val capturer = CapturingTrustManager()
+        val trustManagers = arrayOf<TrustManager>(capturer)
+        val sslCtx = SSLContext.getInstance("TLS").apply { init(null, trustManagers, null) }
 
         val ok = OkHttpClient.Builder()
-            .sslSocketFactory(sslCtx.socketFactory, AcceptAnyTrustManager)
-            .hostnameVerifier { _, _ -> true }
+            .sslSocketFactory(sslCtx.socketFactory, capturer)
+            .hostnameVerifier { _, _ -> true } // pinning by fingerprint, not hostname
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS) // WebSocket long-lived
             .build()
@@ -135,11 +140,36 @@ class BridgeClient @Inject constructor() {
         }
         try {
             val session = client.webSocketSession { url("wss://$host:$port/ws") }
-            _status.value = BridgeStatus.Connected(host, port, pinnedFingerprint ?: "")
+            // After TLS upgrade, OkHttp invokes checkServerTrusted; the
+            // capturer now holds the chain. Verify against the pinned
+            // fingerprint.
+            val chain = capturer.lastChain.get()
+            val actualFp = chain?.firstOrNull()?.let { cert ->
+                sha256ColonUpper(cert.encoded)
+            }
+            if (pinnedFingerprint != null) {
+                if (actualFp == null) {
+                    throw SecurityException("no peer certificate captured")
+                }
+                if (actualFp != pinnedFingerprint) {
+                    throw SecurityException(
+                        "TLS fingerprint mismatch (expected $pinnedFingerprint, got $actualFp)"
+                    )
+                }
+                Log.i(TAG, "TLS pinned fp verified: $actualFp")
+            } else {
+                Log.i(TAG, "TLS first-use: captured fp=${actualFp ?: "<none>"}")
+            }
+            _status.value = BridgeStatus.Connected(host, port, actualFp ?: "")
             pumpLoop(session)
         } finally {
             client.close()
         }
+    }
+
+    private fun sha256ColonUpper(der: ByteArray): String {
+        val d = MessageDigest.getInstance("SHA-256").digest(der)
+        return d.joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
     }
 
     private suspend fun pumpLoop(session: DefaultWebSocketSession) {
@@ -170,13 +200,21 @@ class BridgeClient @Inject constructor() {
 }
 
 /**
- * M5 placeholder. Accepts any server cert. Replaced in M5+ by a
- * fingerprint-pinning X509TrustManager that compares the peer cert's
- * SHA-256 against the value stored in `PrefsRepository.fingerprint`.
+ * Captures the most recent server cert chain presented to
+ * `checkServerTrusted`. Used by [BridgeClient] to enable
+ * fingerprint-based TLS pinning: after the WS upgrade, we read
+ * `lastChain` and compare the leaf cert's SHA-256 against the value
+ * stored in `PrefsRepository.fingerprint`.
  */
-private object AcceptAnyTrustManager : X509TrustManager {
+private class CapturingTrustManager : X509TrustManager {
+    val lastChain: AtomicReference<Array<X509Certificate>?> = AtomicReference(null)
     private val accepted = arrayOf<X509Certificate>()
-    override fun checkClientTrusted(c: Array<out X509Certificate>, a: String) {}
-    override fun checkServerTrusted(c: Array<out X509Certificate>, a: String) {}
+
+    override fun checkClientTrusted(c: Array<out X509Certificate>, a: String) {
+        lastChain.set(arrayOf(*c))
+    }
+    override fun checkServerTrusted(c: Array<out X509Certificate>, a: String) {
+        lastChain.set(arrayOf(*c))
+    }
     override fun getAcceptedIssuers(): Array<X509Certificate> = accepted
 }

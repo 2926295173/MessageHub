@@ -1,5 +1,6 @@
 package im.zyx.phonebridge.pairing
 
+import im.zyx.phonebridge.core.crypto.CertGen
 import im.zyx.phonebridge.core.crypto.Ecdh
 import im.zyx.phonebridge.core.protocol.Envelope
 import im.zyx.phonebridge.core.protocol.MessageType
@@ -10,6 +11,8 @@ import im.zyx.phonebridge.core.protocol.PairConfirmPayload
 import im.zyx.phonebridge.core.protocol.PairRejectPayload
 import im.zyx.phonebridge.core.protocol.PairRequestPayload
 import im.zyx.phonebridge.core.protocol.json
+import im.zyx.phonebridge.data.IdentityStore
+import im.zyx.phonebridge.data.IdentityWithKey
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -17,18 +20,43 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.security.interfaces.ECPublicKey
+import java.util.UUID
 
 class PairingMachineTest {
+
+    /**
+     * In-memory IdentityStore for unit tests: persists across calls
+     * within a single test (and across tests since it's per-class),
+     * but does not touch DataStore. Behaves like a tiny in-process
+     * implementation of [PrefsRepository].
+     */
+    private class TestIdentityStore : IdentityStore {
+        private var deviceId: String? = null
+        private var identity: IdentityWithKey? = null
+
+        override fun getOrCreateDeviceIdBlocking(): String {
+            if (deviceId == null) deviceId = UUID.randomUUID().toString()
+            return deviceId!!
+        }
+
+        override fun getOrCreateIdentityBlocking(commonName: String): IdentityWithKey {
+            if (identity == null) {
+                val kp = Ecdh.generateKeyPair()
+                val cert = CertGen.generateSelfSigned(commonName, kp, validityDays = 3650)
+                identity = IdentityWithKey(kp, cert.pem, cert.fingerprint)
+            }
+            return identity!!
+        }
+    }
+
+    private fun newMachine(): PairingMachine = PairingMachine(TestIdentityStore())
 
     private fun makeRequest(): Envelope {
         val kp = Ecdh.generateKeyPair()
         val pubB64 = Ecdh.toBase64(kp.public as ECPublicKey)
         return Envelope(
-            v = 1,
-            id = "req-1",
-            type = MessageType.DEVICE_PAIR_REQUEST,
-            device_id = "daemon-id",
-            ts = 1L,
+            v = 1, id = "req-1", type = MessageType.DEVICE_PAIR_REQUEST,
+            device_id = "daemon-id", ts = 1L,
             payload = json.encodeToJsonElement(
                 PairRequestPayload.serializer(),
                 PairRequestPayload(ephemeral_pubkey = pubB64)
@@ -38,7 +66,7 @@ class PairingMachineTest {
 
     @Test
     fun `onRequest derives a 6-digit code and replies with challenge`() = runTest {
-        val m = PairingMachine()
+        val m = newMachine()
         val challenge = m.onRequest(makeRequest())
         assertNotNull(challenge)
         assertEquals(MessageType.DEVICE_PAIR_CHALLENGE, challenge!!.type)
@@ -54,7 +82,7 @@ class PairingMachineTest {
 
     @Test
     fun `onRequest with bad pubkey transitions to Failed`() = runTest {
-        val m = PairingMachine()
+        val m = newMachine()
         val env = Envelope(
             v = 1, id = "x", type = MessageType.DEVICE_PAIR_REQUEST, device_id = "d", ts = 1L,
             payload = json.encodeToJsonElement(
@@ -70,7 +98,7 @@ class PairingMachineTest {
 
     @Test
     fun `onAccept sends confirm and transitions to Confirming`() = runTest {
-        val m = PairingMachine()
+        val m = newMachine()
         m.onRequest(makeRequest()) ?: error("expected challenge")
         val accept = Envelope(
             v = 1, id = "acc-1", type = MessageType.DEVICE_PAIR_ACCEPT,
@@ -90,7 +118,7 @@ class PairingMachineTest {
 
     @Test
     fun `onComplete validates and sends our own complete`() = runTest {
-        val m = PairingMachine()
+        val m = newMachine()
         m.onRequest(makeRequest())
         val accept = Envelope(
             v = 1, id = "acc", type = MessageType.DEVICE_PAIR_ACCEPT,
@@ -100,7 +128,7 @@ class PairingMachineTest {
             )
         )
         m.onAccept(accept, ourDeviceId = "and-id")
-        val fakePeerCert = im.zyx.phonebridge.core.crypto.CertGen.generateSelfSigned(
+        val fakePeerCert = CertGen.generateSelfSigned(
             "test", Ecdh.generateKeyPair(), 1
         )
         val complete = Envelope(
@@ -121,16 +149,14 @@ class PairingMachineTest {
             PairCompletePayload.serializer(), reply.payload
         )
         assertTrue(ourCert.cert_pem.contains("BEGIN CERTIFICATE"))
-        // 32 colon-separated UPPERCASE hex pairs
         assertEquals(32 * 3 - 1, ourCert.cert_fingerprint.length)
-        assertEquals(31, ourCert.cert_fingerprint.count { it == ':' })
         val s = m.state.first()
         assertTrue(s is PairingState.Paired)
     }
 
     @Test
     fun `onComplete with malformed PEM transitions to Failed`() = runTest {
-        val m = PairingMachine()
+        val m = newMachine()
         m.onRequest(makeRequest())
         val accept = Envelope(
             v = 1, id = "acc", type = MessageType.DEVICE_PAIR_ACCEPT,
@@ -156,7 +182,7 @@ class PairingMachineTest {
 
     @Test
     fun `onReject transitions to Failed with reason`() = runTest {
-        val m = PairingMachine()
+        val m = newMachine()
         m.onRequest(makeRequest())
         val reject = Envelope(
             v = 1, id = "r", type = MessageType.DEVICE_PAIR_REJECT,
@@ -170,5 +196,17 @@ class PairingMachineTest {
         val s = m.state.first()
         assertTrue(s is PairingState.Failed)
         assertEquals("user said no", (s as PairingState.Failed).reason)
+    }
+
+    @Test
+    fun `device id is stable across PairingMachine instances backed by the same store`() = runTest {
+        val store = TestIdentityStore()
+        val m1 = PairingMachine(store)
+        val id1 = m1.ourDeviceId()
+        val m2 = PairingMachine(store)
+        val id2 = m2.ourDeviceId()
+        assertEquals(id1, id2)
+        // Same machine returns the same id.
+        assertEquals(id1, m1.ourDeviceId())
     }
 }

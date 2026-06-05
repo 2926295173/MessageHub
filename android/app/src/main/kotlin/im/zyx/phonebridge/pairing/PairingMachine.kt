@@ -6,21 +6,23 @@ import im.zyx.phonebridge.core.crypto.Ecdh
 import im.zyx.phonebridge.core.crypto.PairingCode
 import im.zyx.phonebridge.core.protocol.Envelope
 import im.zyx.phonebridge.core.protocol.MessageType
-import im.zyx.phonebridge.core.protocol.PairAcceptPayload
 import im.zyx.phonebridge.core.protocol.PairChallengePayload
 import im.zyx.phonebridge.core.protocol.PairCompletePayload
 import im.zyx.phonebridge.core.protocol.PairConfirmPayload
 import im.zyx.phonebridge.core.protocol.PairRejectPayload
 import im.zyx.phonebridge.core.protocol.PairRequestPayload
 import im.zyx.phonebridge.core.protocol.json
+import im.zyx.phonebridge.data.IdentityStore
+import im.zyx.phonebridge.data.IdentityWithKey
 import java.security.KeyPair
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.time.Instant
 import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.serialization.json.Json
 
 private const val TAG = "Pairing"
 
@@ -28,90 +30,97 @@ private const val TAG = "Pairing"
  * The Android side of the pairing protocol. Mirrors the Rust
  * `pairing::Responder` in `crates/phonebridge-net/src/pairing.rs`.
  *
+ * The long-term identity (keypair + self-signed X.509 cert) and
+ * the stable device id are persisted in [PrefsRepository] so they
+ * survive process restarts — the daemon sees the same `device_id`
+ * and the same `pubkey` in `device.hello` on every reconnect.
+ *
  * Flow:
  *  1. Desktop sends `device.pair.request` with its ephemeral pubkey.
  *  2. We generate an ephemeral keypair, compute ECDH, derive the
  *     6-digit code via HKDF-SHA256, and reply with
- *     `device.pair.challenge` carrying our ephemeral pubkey + the code
- *     + an expiry.
+ *     `device.pair.challenge` carrying our ephemeral pubkey + the
+ *     code + an expiry.
  *  3. The user visually verifies the code on Android, types it on
  *     the desktop, and the desktop sends `device.pair.accept`.
  *  4. We send `device.pair.confirm(accepted=true)`.
  *  5. The desktop sends `device.pair.complete` with its long-term
- *     cert. We verify the PEM/fingerprint, persist it, and send our
- *     own `device.pair.complete` with our long-term cert.
- *
- * After step 5 the state is [PairingState.Paired].
+ *     cert. We verify the PEM/fingerprint, then send our own
+ *     `device.pair.complete` with our long-term cert.
  */
 sealed interface PairingState {
-    /** No pairing in flight. */
     object Idle : PairingState
-    /** Desktop's `pair.request` received; we are computing the code. */
     data class ShowingCode(
         val code: String,
         val expiresAtMs: Long,
         val peerDeviceId: String,
         val peerEphemeralPubB64: String
     ) : PairingState
-    /** Desktop's `pair.accept` received; we are confirming. */
     data class Confirming(
         val code: String,
         val peerDeviceId: String
     ) : PairingState
-    /** Both sides exchanged `pair.complete`. */
     data class Paired(
         val ourDeviceId: String,
         val peerDeviceId: String,
         val peerFingerprint: String
     ) : PairingState
-    /** Pairing failed at any stage. */
     data class Failed(val reason: String) : PairingState
 }
 
-class PairingMachine {
-
+@Singleton
+class PairingMachine @Inject constructor(
+    private val identityStore: IdentityStore
+) {
     private val _state = MutableStateFlow<PairingState>(PairingState.Idle)
     val state: StateFlow<PairingState> = _state
 
-    // Per-session: ephemeral keypair, long-term identity, peer pubkey.
+    // Per-session: ephemeral keypair (fresh per pairing).
     private var ephemeral: KeyPair? = null
-    private var longTerm: KeyPair? = null
-    private var selfSigned: CertGen.SelfSignedCert? = null
 
-    /** Construct the long-term identity once at app start. */
-    fun ensureIdentity(commonName: String) {
-        if (longTerm == null) {
-            val kp = Ecdh.generateKeyPair()
-            longTerm = kp
-            selfSigned = CertGen.generateSelfSigned(commonName, kp)
-            Log.i(TAG, "identity ready; fp=${selfSigned!!.fingerprint}")
-        }
+    // Long-term identity, loaded from IdentityStore on first use
+    // (and persisted after the first generation so future restarts
+    // see the same identity).
+    private var longTermKp: KeyPair? = null
+    private var longTermPem: String? = null
+    private var longTermFingerprintStr: String? = null
+
+    /** Lazily load (or generate) the persistent long-term identity. */
+    @Synchronized
+    fun ensureIdentity(commonName: String = "phonebridge-android") {
+        if (longTermKp != null) return
+        val id: IdentityWithKey = identityStore.getOrCreateIdentityBlocking(commonName)
+        longTermKp = id.keyPair
+        longTermPem = id.pem
+        longTermFingerprintStr = id.fingerprint
+        Log.i(TAG, "identity ready; fp=${id.fingerprint}")
     }
 
-    val longTermFingerprint: String? get() = selfSigned?.fingerprint
+    val longTermFingerprint: String?
+        get() {
+            ensureIdentity()
+            return longTermFingerprintStr
+        }
 
     /**
-     * Base64 (URL-safe, no padding) of our long-term ECDH P-256 public
-     * key in uncompressed form. Sent in `device.hello` so the daemon
-     * has a stable identity to pin at pairing time.
-     *
-     * Returns "stub" if the identity has not been generated yet.
+     * Base64 (URL-safe, no padding) of our long-term ECDH P-256
+     * public key in uncompressed form. Sent in `device.hello`.
      */
     val longTermPublicBase64: String
         get() {
-            ensureIdentity("phonebridge-android")
-            val pub = (longTerm?.public as? java.security.interfaces.ECPublicKey)
-                ?: return "stub"
+            ensureIdentity()
+            val pub = (longTermKp?.public as? ECPublicKey) ?: return "stub"
             return Ecdh.toBase64(pub)
         }
 
     /**
-     * Process the desktop's `device.pair.request`. Returns the
-     * `device.pair.challenge` envelope to send back, or null on
-     * protocol error (state is set to Failed).
+     * Stable device id (UUIDv4). Persisted in [IdentityStore] so
+     * it survives process restarts.
      */
+    fun ourDeviceId(): String = identityStore.getOrCreateDeviceIdBlocking()
+
     fun onRequest(envelope: Envelope): Envelope? {
-        ensureIdentity("phonebridge-android")
+        ensureIdentity()
         val req = runCatching {
             json.decodeFromJsonElement(PairRequestPayload.serializer(), envelope.payload)
         }.onFailure { Log.w(TAG, "bad pair.request payload: $it") }
@@ -125,8 +134,6 @@ class PairingMachine {
             _state.value = PairingState.Failed("bad peer pubkey: ${t.message}")
             return null
         }
-
-        // Generate our ephemeral and compute the shared secret.
         val myKp = Ecdh.generateKeyPair()
         ephemeral = myKp
         val shared = try {
@@ -160,10 +167,6 @@ class PairingMachine {
         )
     }
 
-    /**
-     * Process the desktop's `device.pair.accept`. Returns the
-     * `device.pair.confirm` envelope to send back.
-     */
     fun onAccept(envelope: Envelope, ourDeviceId: String): Envelope {
         val current = _state.value
         if (current !is PairingState.ShowingCode) {
@@ -182,9 +185,6 @@ class PairingMachine {
         return makeConfirm(envelope.device_id, ourDeviceId, accepted = true)
     }
 
-    /**
-     * Process the desktop's `device.pair.reject`. No reply.
-     */
     fun onReject(envelope: Envelope) {
         val payload = runCatching {
             json.decodeFromJsonElement(PairRejectPayload.serializer(), envelope.payload)
@@ -194,13 +194,6 @@ class PairingMachine {
         Log.w(TAG, "pair.reject received: $reason")
     }
 
-    /**
-     * Process the desktop's `device.pair.complete`. Validates the cert
-     * PEM contains "BEGIN CERTIFICATE" and that the fingerprint is
-     * 32 colon-separated UPPERCASE hex pairs. If accepted, returns
-     * our own `device.pair.complete` envelope carrying our long-term
-     * cert.
-     */
     fun onComplete(envelope: Envelope, ourDeviceId: String): Envelope? {
         val payload = runCatching {
             json.decodeFromJsonElement(PairCompletePayload.serializer(), envelope.payload)
@@ -217,7 +210,6 @@ class PairingMachine {
             return null
         }
 
-        // We are paired.
         val prevState = _state.value
         val peerId = when (prevState) {
             is PairingState.Confirming -> prevState.peerDeviceId
@@ -231,14 +223,14 @@ class PairingMachine {
         )
         Log.i(TAG, "paired with $peerId; peer fp=${payload.cert_fingerprint}")
 
-        // Reply with our own cert.
-        val ourCert = selfSigned ?: run {
+        val pem = longTermPem ?: run {
             Log.e(TAG, "no long-term cert; ensureIdentity() was not called")
             return null
         }
+        val fp = longTermFingerprintStr ?: return null
         val replyPayload = PairCompletePayload(
-            cert_pem = ourCert.pem,
-            cert_fingerprint = ourCert.fingerprint
+            cert_pem = pem,
+            cert_fingerprint = fp
         )
         return Envelope(
             v = 1,
@@ -253,13 +245,8 @@ class PairingMachine {
     fun reset() {
         _state.value = PairingState.Idle
         ephemeral = null
-        // We deliberately KEEP the long-term identity so the same
-        // device reconnects to the same daemon. Pairing state can be
-        // reset; identity persists.
+        // Long-term identity is persistent; do not reset.
     }
-
-    fun ourDeviceId(): String =
-        SELF_DEVICE_ID
 
     private fun makeConfirm(peerDeviceId: String, ourDeviceId: String, accepted: Boolean): Envelope {
         val payload = PairConfirmPayload(accepted = accepted)
@@ -273,24 +260,10 @@ class PairingMachine {
         )
     }
 
-    /**
-     * 32 colon-separated UPPERCASE hex pairs, e.g. `AB:CD:...:EF` (95 chars).
-     */
     private fun isValidFingerprint(s: String): Boolean {
         if (s.length != 32 * 3 - 1) return false
         val parts = s.split(':')
         if (parts.size != 32) return false
         return parts.all { it.length == 2 && it.all { c -> c in '0'..'9' || c in 'A'..'F' } }
-    }
-
-    companion object {
-        /**
-         * Stable per-process device id. We don't persist it across
-         * process death in MVP; the daemon's registry keys on whatever
-         * id the Android sends in `device.hello`, so a restart is
-         * fine (the daemon sees a new id, a new Responder, a new
-         * pairing round).
-         */
-        val SELF_DEVICE_ID: String = UUID.randomUUID().toString()
     }
 }
