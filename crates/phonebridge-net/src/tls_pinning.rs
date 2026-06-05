@@ -86,16 +86,16 @@ mod tests {
         store.write().insert(device_id, id.fingerprint.clone());
 
         // Match
-        let r = verify_pin(&store, device_id, &[cert.clone()]);
+        let r = verify_pin(&store, device_id, std::slice::from_ref(&cert));
         assert!(r.is_ok(), "expected ok, got {r:?}");
 
         // Mismatch
         store.write().insert(device_id, "DE:AD:BE:EF".repeat(8));
-        let r = verify_pin(&store, device_id, &[cert.clone()]);
+        let r = verify_pin(&store, device_id, std::slice::from_ref(&cert));
         assert!(matches!(r, Err(PinError::Mismatch { .. })));
 
         // Unknown device
-        let r = verify_pin(&store, uuid::Uuid::new_v4(), &[cert]);
+        let r = verify_pin(&store, uuid::Uuid::new_v4(), std::slice::from_ref(&cert));
         assert!(matches!(r, Err(PinError::UnknownDevice)));
     }
 
@@ -110,7 +110,6 @@ mod tests {
                 continue;
             }
             if line.contains("END CERTIFICATE") {
-                in_cert = false;
                 break;
             }
             if in_cert {

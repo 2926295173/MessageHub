@@ -117,20 +117,22 @@ open class BridgeClient @Inject constructor() {
     }
 
     private suspend fun runOnce(host: String, port: Int, pinnedFingerprint: String?) {
-        // M5+ fingerprint pinning with TOFU semantics:
-        //   - First connect: pinnedFingerprint is null; we capture the
-        //     peer's cert and report it via BridgeStatus.Connected so
-        //     the caller (BridgeService) can persist it.
-        //   - Subsequent connects: pinnedFingerprint is the value
-        //     stored in PrefsRepository. We verify the captured cert's
-        //     SHA-256 against it; mismatch -> SecurityException.
-        val capturer = CapturingTrustManager()
+        // Fingerprint pinning with TOFU semantics, enforced DURING the TLS
+        // handshake (not after the WebSocket is established):
+        //   - First connect: pinnedFingerprint is null; we accept any cert
+        //     and report its SHA-256 via BridgeStatus.Connected so the
+        //     caller (BridgeService) can persist it.
+        //   - Subsequent connects: pinnedFingerprint is the value stored
+        //     in PrefsRepository. PinnedTrustManager.checkServerTrusted
+        //     throws CertificateException on mismatch, which causes
+        //     OkHttp to abort the handshake BEFORE the WebSocket upgrade.
+        val capturer = PinnedTrustManager(pinnedFingerprint)
         val trustManagers = arrayOf<TrustManager>(capturer)
         val sslCtx = SSLContext.getInstance("TLS").apply { init(null, trustManagers, null) }
 
         val ok = OkHttpClient.Builder()
             .sslSocketFactory(sslCtx.socketFactory, capturer)
-            .hostnameVerifier { _, _ -> true } // pinning by fingerprint, not hostname
+            .hostnameVerifier { _, _ -> true } // self-signed: hostname irrelevant; pin is the cert
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS) // WebSocket long-lived
             .build()
@@ -140,27 +142,19 @@ open class BridgeClient @Inject constructor() {
         }
         try {
             val session = client.webSocketSession { url("wss://$host:$port/ws") }
-            // After TLS upgrade, OkHttp invokes checkServerTrusted; the
-            // capturer now holds the chain. Verify against the pinned
-            // fingerprint.
+            // Handshake already passed (and any pin check already
+            // executed inside checkServerTrusted). Read the captured
+            // chain purely to report the fingerprint back to the caller.
             val chain = capturer.lastChain.get()
             val actualFp = chain?.firstOrNull()?.let { cert ->
                 sha256ColonUpper(cert.encoded)
-            }
+            } ?: ""
             if (pinnedFingerprint != null) {
-                if (actualFp == null) {
-                    throw SecurityException("no peer certificate captured")
-                }
-                if (actualFp != pinnedFingerprint) {
-                    throw SecurityException(
-                        "TLS fingerprint mismatch (expected $pinnedFingerprint, got $actualFp)"
-                    )
-                }
                 Log.i(TAG, "TLS pinned fp verified: $actualFp")
             } else {
-                Log.i(TAG, "TLS first-use: captured fp=${actualFp ?: "<none>"}")
+                Log.i(TAG, "TLS first-use: captured fp=$actualFp")
             }
-            _status.value = BridgeStatus.Connected(host, port, actualFp ?: "")
+            _status.value = BridgeStatus.Connected(host, port, actualFp)
             pumpLoop(session)
         } finally {
             client.close()
@@ -200,21 +194,48 @@ open class BridgeClient @Inject constructor() {
 }
 
 /**
- * Captures the most recent server cert chain presented to
- * `checkServerTrusted`. Used by [BridgeClient] to enable
- * fingerprint-based TLS pinning: after the WS upgrade, we read
- * `lastChain` and compare the leaf cert's SHA-256 against the value
- * stored in `PrefsRepository.fingerprint`.
+ * TLS trust manager for the phone-to-desktop bridge. Performs two jobs:
+ *  1. Capture the most recent peer cert chain (for first-use TOFU
+ *     reporting via [lastChain]).
+ *  2. If a pinned fingerprint was supplied, verify the leaf cert's
+ *     SHA-256 against it INSIDE `checkServerTrusted` — i.e. during
+ *     the TLS handshake — and throw on mismatch. This aborts the
+ *     handshake before any WebSocket frames are exchanged, closing
+ *     the MITM hole that a post-handshake check would leave open.
+ *
+ * The daemon uses a self-signed cert that is not chained from any
+ * public CA, so we intentionally do not delegate to the system trust
+ * store; the pin is the source of truth. The `hostnameVerifier` in
+ * the caller bypasses CN/SAN matching for the same reason.
  */
-private class CapturingTrustManager : X509TrustManager {
+private class PinnedTrustManager(private val pinnedFingerprint: String?) :
+    X509TrustManager {
     val lastChain: AtomicReference<Array<X509Certificate>?> = AtomicReference(null)
     private val accepted = arrayOf<X509Certificate>()
 
     override fun checkClientTrusted(c: Array<out X509Certificate>, a: String) {
-        lastChain.set(arrayOf(*c))
+        // Client mode is unused (we are always the TLS client).
     }
+
     override fun checkServerTrusted(c: Array<out X509Certificate>, a: String) {
         lastChain.set(arrayOf(*c))
+        if (pinnedFingerprint != null) {
+            val leaf = c.firstOrNull()
+                ?: throw java.security.cert.CertificateException("empty server chain")
+            val actual = sha256ColonUpperStatic(leaf.encoded)
+            if (actual != pinnedFingerprint) {
+                throw java.security.cert.CertificateException(
+                    "TLS fingerprint mismatch (expected $pinnedFingerprint, got $actual)"
+                )
+            }
+        }
     }
+
     override fun getAcceptedIssuers(): Array<X509Certificate> = accepted
+}
+
+/** Top-level helper to avoid capturing `this` of [BridgeClient]. */
+private fun sha256ColonUpperStatic(der: ByteArray): String {
+    val d = java.security.MessageDigest.getInstance("SHA-256").digest(der)
+    return d.joinToString(":") { "%02X".format(it.toInt() and 0xFF) }
 }

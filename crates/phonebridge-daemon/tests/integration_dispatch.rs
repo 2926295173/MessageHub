@@ -8,15 +8,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::{SinkExt, StreamExt};
-use phonebridge_net::ws_handler::{self, NoopSink, WsContext, WsSink};
+use futures::SinkExt;
+use phonebridge_net::ws_handler::{self, WsContext, WsSink};
 use phonebridge_proto::{
     DeviceHello, DeviceType, Envelope, MessageType, NotificationReceived,
 };
 use phonebridge_storage::Db;
-use phonebridge_storage::models::{CallRow, NotificationRow, SmsDirection, SmsRow};
+use phonebridge_storage::models::SmsDirection;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{client_async, WebSocketStream};
 use uuid::Uuid;

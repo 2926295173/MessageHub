@@ -26,10 +26,9 @@ use uuid::Uuid;
 
 use phonebridge_bus::{Bus, BusEvent};
 use phonebridge_proto::{
-    CallAnswerRequest, CallDialRequest, CallEndRequest, CallHistory, CallHistoryEntry, CallIncoming,
-    CallState, DeviceHello, DeviceType, Envelope, MessageType, NotificationDismissed,
-    NotificationReceived, PairAccept, PairChallenge, PairComplete, PairConfirm, PairReject,
-    PairRequest, SmsListRequest, SmsListResult, SmsReceived, SmsSendRequest, SmsSendResult, Unpair,
+    CallHistory, CallIncoming,
+    CallState, DeviceHello, Envelope, MessageType, NotificationDismissed,
+    NotificationReceived, PairConfirm, SmsListResult, SmsReceived, SmsSendResult, Unpair,
 };
 
 use crate::pairing::{Initiator, PairingError, PairingOutcome, Responder};
@@ -56,6 +55,16 @@ pub enum WsError {
 }
 
 /// Per-device state held in the shared `PairingMap`.
+///
+/// Variants differ in size by design: an `UnpairedSession` carries a
+/// full in-flight pairing state machine (ephemeral keys, shared
+/// secret, expiry, cert material) which is ~344 B; a `PairedSession`
+/// is just a small id+name+fingerprint record (~64 B). Boxing the
+/// large variant would push the size delta onto every access and
+/// force callers to handle `Box<UnpairedSession>`; the size cost is
+/// acceptable given that at most a handful of devices are ever in
+/// `Unpaired` at once. Allowed locally to silence the lint.
+#[allow(clippy::large_enum_variant)]
 pub enum DeviceSession {
     /// Not yet paired; carries either an Initiator (we're starting) or a
     /// Responder (we just received hello) state machine.
@@ -581,7 +590,7 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
         }
         MessageType::DevicePairConfirm => {
             let peer_id = env.device_id;
-            let mut init = match ctx.pairing.take_unpaired_initiator(&peer_id) {
+            let init = match ctx.pairing.take_unpaired_initiator(&peer_id) {
                 Some(i) => i,
                 None => {
                     warn!(%peer_id, "ws: pair.confirm for unknown initiator session");
@@ -666,7 +675,7 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phonebridge_proto::DeviceHello;
+    use phonebridge_proto::{DeviceHello, DeviceType};
     use tokio::net::TcpListener;
     use tokio_tungstenite::tungstenite::Message;
     use futures::SinkExt;

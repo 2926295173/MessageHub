@@ -99,7 +99,7 @@ impl DeviceRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    
     use phonebridge_proto::{DeviceHello, DeviceType, MessageType};
 
     fn dummy_env() -> Envelope {

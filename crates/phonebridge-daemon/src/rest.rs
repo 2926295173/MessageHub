@@ -39,9 +39,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::ToSchema;
 
-use phonebridge_net::DeviceRegistry;
 use phonebridge_proto::{MessageType, SmsSendRequest, SmsSendResult};
 use phonebridge_storage::models::{
     AuditLogRow, CallRow, DeviceRow, NotificationRow, PairingRow, SmsRow,
@@ -318,7 +317,7 @@ async fn pair_start(
 
     // Replace any existing session for this device with a fresh
     // Initiator (desktop-driven) state machine.
-    let mut initiator = match phonebridge_net::pairing::Initiator::start(
+    let initiator = match phonebridge_net::pairing::Initiator::start(
         device_id,
         state.our_name.read().clone(),
     ) {
@@ -408,7 +407,7 @@ async fn pair_accept(
     // re-insert it for the next stage, where the WS handler will read
     // it on device.pair.confirm and device.pair.complete).
     let session = state.pairing.get(&device_id);
-    let mut initiator = match session {
+    let initiator = match session {
         Some(phonebridge_net::DeviceSession::Unpaired(
             phonebridge_net::UnpairedSession::Initiator(i),
         )) => i,
@@ -512,7 +511,7 @@ async fn pair_reject(
     let device_id = req.device_id;
     let reason = req.reason.as_deref().unwrap_or("rejected by user");
     let session = state.pairing.get(&device_id);
-    let mut initiator = match session {
+    let initiator = match session {
         Some(phonebridge_net::DeviceSession::Unpaired(
             phonebridge_net::UnpairedSession::Initiator(i),
         )) => i,
@@ -1140,32 +1139,38 @@ pub struct CallCounts {
 async fn dashboard(
     State(state): State<AppState>,
     Query(q): Query<DashboardQuery>,
-) -> impl IntoResponse {
-    let paired = count_paired(&state).await.unwrap_or(0);
+) -> Result<impl IntoResponse, DashboardError> {
+    let paired = count_paired(&state)
+        .await
+        .map_err(|e| DashboardError::Query("count_paired", e))?;
     let notif_total = state
         .db
         .list_notifications(q.device_id, 100000, false, None)
         .await
-        .map(|v| v.len() as i64)
-        .unwrap_or(0);
+        .map_err(|e| DashboardError::Query("list_notifications", e.into()))?
+        .len() as i64;
     let notif_unread = state
         .db
         .count_unread_notifications(q.device_id)
         .await
-        .unwrap_or(0);
+        .map_err(|e| DashboardError::Query("count_unread_notifications", e.into()))?;
     let sms_total = state
         .db
         .list_sms(q.device_id, None, 100000)
         .await
-        .map(|v| v.len() as i64)
-        .unwrap_or(0);
+        .map_err(|e| DashboardError::Query("list_sms", e.into()))?
+        .len() as i64;
     let sms_convos = state
         .db
         .list_sms_conversations(q.device_id)
         .await
-        .map(|v| v.len() as i64)
-        .unwrap_or(0);
-    let calls = state.db.list_calls(q.device_id, 100000).await.unwrap_or_default();
+        .map_err(|e| DashboardError::Query("list_sms_conversations", e.into()))?
+        .len() as i64;
+    let calls = state
+        .db
+        .list_calls(q.device_id, 100000)
+        .await
+        .map_err(|e| DashboardError::Query("list_calls", e.into()))?;
     let call_total = calls.len() as i64;
     let call_missed = calls
         .iter()
@@ -1187,9 +1192,29 @@ async fn dashboard(
             ringing: call_ringing,
         },
     };
-    (StatusCode::OK, Json(body))
-        .into_response()
-        .into_response()
+    Ok((StatusCode::OK, Json(body)).into_response())
+}
+
+/// Error type for [`dashboard`]. Each variant carries which DB call failed so
+/// logs/metrics can attribute the failure.
+#[derive(Debug, thiserror::Error)]
+enum DashboardError {
+    #[error("dashboard query `{0}` failed: {1}")]
+    Query(&'static str, #[source] anyhow::Error),
+}
+
+impl IntoResponse for DashboardError {
+    fn into_response(self) -> axum::response::Response {
+        tracing::error!(error = %self, "dashboard query failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": "dashboard_unavailable",
+                "message": self.to_string(),
+            })),
+        )
+            .into_response()
+    }
 }
 
 #[derive(Debug, Deserialize)]

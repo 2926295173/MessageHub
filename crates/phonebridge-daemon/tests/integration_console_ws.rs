@@ -2,14 +2,13 @@
 
 #![cfg(test)]
 
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use phonebridge_daemon::console_bus::ConsoleBus;
 use phonebridge_daemon::test_context;
 use phonebridge_proto::{
-    DeviceHello, DeviceType, Envelope, MessageType, NotificationReceived,
+    Envelope, MessageType, NotificationReceived,
 };
 use phonebridge_storage::Db;
 use tokio::net::{TcpListener, TcpStream};
@@ -40,19 +39,17 @@ async fn console_ws_pushes_events() {
         let (s, _) = l.accept().await.unwrap();
         // Use tokio_tungstenite accept_async to do the WS upgrade.
         let ws = tokio_tungstenite::accept_async(s).await.unwrap();
-        let (mut sink, mut stream) = ws.split();
+        let (mut sink, _stream) = ws.split();
         let mut sub = server_bus.subscribe();
         // Send a hello.
         let hello = serde_json::json!({"kind":"console.hello","summary":{}});
         let _ = sink.send(Message::Text(hello.to_string())).await;
         // Forward a few events.
         for _ in 0..3 {
-            if let Ok(evt) = timeout(Duration::from_secs(2), sub.recv()).await {
-                if let Ok(e) = evt {
-                    let s = serde_json::to_string(&e).unwrap();
-                    if sink.send(Message::Text(s)).await.is_err() {
-                        break;
-                    }
+            if let Ok(Ok(e)) = timeout(Duration::from_secs(2), sub.recv()).await {
+                let s = serde_json::to_string(&e).unwrap();
+                if sink.send(Message::Text(s)).await.is_err() {
+                    break;
                 }
             }
         }

@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 /// Top-level daemon configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     /// Server (TLS) section.
     #[serde(default)]
@@ -19,17 +19,6 @@ pub struct Config {
     /// Logging section.
     #[serde(default)]
     pub logging: LoggingConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            discovery: DiscoveryConfig::default(),
-            storage: StorageConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
 }
 
 impl Config {
@@ -124,17 +113,11 @@ fn default_true() -> bool {
 }
 
 /// `[storage]` section.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StorageConfig {
     /// SQLite path; empty = use `{data_dir}/phonebridge.db`.
     #[serde(default)]
     pub db_path: String,
-}
-
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self { db_path: String::new() }
-    }
 }
 
 /// `[logging]` section.

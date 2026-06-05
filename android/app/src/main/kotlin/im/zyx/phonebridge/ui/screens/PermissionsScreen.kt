@@ -33,12 +33,16 @@ import androidx.compose.material3.MaterialTheme
 fun PermissionsScreen(onContinue: () -> Unit) {
     val context = LocalContext.current
     val reqPerms = buildList {
-        add(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         add(Manifest.permission.RECEIVE_SMS)
         add(Manifest.permission.READ_SMS)
         add(Manifest.permission.SEND_SMS)
         add(Manifest.permission.READ_PHONE_STATE)
-        add(Manifest.permission.ANSWER_PHONE_CALLS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            add(Manifest.permission.ANSWER_PHONE_CALLS)
+        }
         add(Manifest.permission.READ_CALL_LOG)
     }
 

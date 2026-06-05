@@ -6,8 +6,7 @@
 //!
 //! - `GET  /console/api-docs/openapi.json` — the raw OpenAPI 3.1 JSON.
 //! - `GET  /console/api-docs/`            — a tiny HTML page that loads
-//!                                         `swagger-ui-dist` from a CDN and
-//!                                         points it at the JSON.
+//!   `swagger-ui-dist` from a CDN and points it at the JSON.
 //!
 //! For offline or air-gapped environments, users can point their own
 //! Swagger UI (or Redoc) at the JSON URL.
@@ -22,7 +21,7 @@ use axum::routing::get;
 use utoipa::OpenApi;
 
 use phonebridge_storage::models::{
-    AuditLogRow, CallRow, DeviceRow, NotificationRow, PairingRow, SmsRow,
+    AuditLogRow, CallRow, DeviceRow, NotificationRow, SmsRow,
 };
 
 use crate::app_state::AppState;
@@ -118,7 +117,7 @@ const SWAGGER_HTML: &str = r##"<!doctype html>
 /// Build the OpenAPI sub-router. Returns `Router<AppState>` for
 /// compatibility with the rest of the app; the routes are stateless.
 pub fn router() -> Router<AppState> {
-    use utoipa::openapi::OpenApi as _;
+    
     let doc = ApiDoc::openapi();
 
     Router::new()
