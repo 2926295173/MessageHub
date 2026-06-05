@@ -14,11 +14,13 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import im.zyx.phonebridge.core.protocol.CallStateKind
+import im.zyx.phonebridge.core.protocol.CallStatePayload
 import im.zyx.phonebridge.core.protocol.Envelope
 import im.zyx.phonebridge.core.protocol.MessageType
-import im.zyx.phonebridge.core.protocol.SmsSendPayload
 import im.zyx.phonebridge.core.protocol.json
 import im.zyx.phonebridge.network.BridgeClient
+import im.zyx.phonebridge.pairing.PairingMachine
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -32,24 +34,15 @@ private const val TAG = "CallController"
 
 /**
  * Bridges the desktop's call + SMS commands to the Android telephony
- * subsystem.
+ * subsystem and reports call state changes to the daemon.
  *
- * Reads (Android -> daemon):
- *   - call state transitions  -> call.state
- *   - incoming calls          -> call.incoming
- *
- * Writes (daemon -> Android):
- *   - call.answer             -> TelecomManager.acceptRingingCall
- *   - call.end                -> TelecomManager.endCall
- *   - call.dial               -> Intent.ACTION_CALL
- *   - sms.send                -> SmsManager.sendTextMessage
- *
- * Telephony callbacks require READ_PHONE_STATE, granted at runtime.
+ * Permissions: READ_PHONE_STATE, CALL_PHONE, ANSWER_PHONE_CALLS.
  */
 @Singleton
 class CallController @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val client: BridgeClient
+    private val client: BridgeClient,
+    private val pairing: PairingMachine
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val telephony: TelephonyManager by lazy {
@@ -59,16 +52,10 @@ class CallController @Inject constructor(
         context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
     }
 
-    private val listener = object : PhoneStateListener() {
+    private val legacyListener = object : PhoneStateListener() {
         @Deprecated("Deprecated in Java")
         override fun onCallStateChanged(state: Int, phoneNumber: String?) {
-            val s = when (state) {
-                TelephonyManager.CALL_STATE_RINGING -> "ringing"
-                TelephonyManager.CALL_STATE_OFFHOOK -> "offhook"
-                TelephonyManager.CALL_STATE_IDLE -> "idle"
-                else -> "unknown"
-            }
-            sendState(s, phoneNumber.orEmpty())
+            sendState(state, phoneNumber)
         }
     }
 
@@ -79,15 +66,17 @@ class CallController @Inject constructor(
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                telephony.registerTelephonyCallback(context.mainExecutor, object : TelephonyCallback(),
-                    TelephonyCallback.CallStateListener {
-                    override fun onCallStateChanged(state: Int) {
-                        listener.onCallStateChanged(state, null)
+                telephony.registerTelephonyCallback(
+                    context.mainExecutor,
+                    object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                        override fun onCallStateChanged(state: Int) {
+                            sendState(state, null)
+                        }
                     }
-                })
+                )
             } else {
                 @Suppress("DEPRECATION")
-                telephony.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+                telephony.listen(legacyListener, PhoneStateListener.LISTEN_CALL_STATE)
             }
         } catch (t: Throwable) {
             Log.w(TAG, "register telephony callback failed: $t")
@@ -98,7 +87,7 @@ class CallController @Inject constructor(
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 @Suppress("DEPRECATION")
-                telephony.listen(listener, PhoneStateListener.LISTEN_NONE)
+                telephony.listen(legacyListener, PhoneStateListener.LISTEN_NONE)
             }
         } catch (_: Throwable) {}
     }
@@ -108,7 +97,6 @@ class CallController @Inject constructor(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             telecom.acceptRingingCall()
         } else {
-            // fallback for old devices: not supported in MVP
             Log.w(TAG, "answer not supported on API ${Build.VERSION.SDK_INT}")
         }
     }
@@ -155,22 +143,27 @@ class CallController @Inject constructor(
         }
     }
 
-    private fun sendState(state: String, number: String) {
-        val payload = im.zyx.phonebridge.core.protocol.CallStatePayload(
-            callId = UUID.randomUUID().toString(),
-            state = state,
-            number = number
+    private fun sendState(state: Int, phoneNumber: String?) {
+        val s = when (state) {
+            TelephonyManager.CALL_STATE_RINGING -> CallStateKind.Ringing
+            TelephonyManager.CALL_STATE_OFFHOOK -> CallStateKind.Offhook
+            TelephonyManager.CALL_STATE_IDLE -> CallStateKind.Idle
+            else -> CallStateKind.Idle
+        }
+        val payload = CallStatePayload(
+            state = s,
+            phone_number = phoneNumber,
+            call_id = null,
+            contact_name = null,
+            sim_slot = null
         )
         val env = Envelope(
+            v = 1,
             id = UUID.randomUUID().toString(),
+            ts = Instant.now().toEpochMilli(),
             type = MessageType.CALL_STATE,
-            from = "android",
-            to = "daemon",
-            ts = Instant.now().toString(),
-            payload = json.encodeToJsonElement(
-                im.zyx.phonebridge.core.protocol.CallStatePayload.serializer(),
-                payload
-            )
+            device_id = pairing.ourDeviceId(),
+            payload = json.encodeToJsonElement(CallStatePayload.serializer(), payload)
         )
         scope.launch { client.send(env) }
     }

@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.websocket.WebSockets
@@ -27,9 +27,15 @@ import io.ktor.websocket.DefaultWebSocketSession
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
+import okhttp3.OkHttpClient
+import java.security.cert.X509Certificate
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import kotlinx.serialization.encodeToString
 
 private const val TAG = "BridgeClient"
@@ -110,13 +116,25 @@ class BridgeClient @Inject constructor() {
     }
 
     private suspend fun runOnce(host: String, port: Int, pinnedFingerprint: String?) {
-        val client = HttpClient(OkHttp) { install(WebSockets) }
+        // M5+ TODO: replace AcceptAnyTrustManager with fingerprint-based
+        // pinning: read the daemon's cert from /api/v1/cert, store the
+        // SHA-256 fingerprint in PrefsRepository, and verify on every
+        // connect. For MVP we accept any TLS cert.
+        val trustAll = arrayOf<TrustManager>(AcceptAnyTrustManager)
+        val sslCtx = SSLContext.getInstance("TLS").apply { init(null, trustAll, null) }
+
+        val ok = OkHttpClient.Builder()
+            .sslSocketFactory(sslCtx.socketFactory, AcceptAnyTrustManager)
+            .hostnameVerifier { _, _ -> true }
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS) // WebSocket long-lived
+            .build()
+        val client = HttpClient(OkHttp) {
+            install(WebSockets)
+            engine { preconfigured = ok }
+        }
         try {
             val session = client.webSocketSession { url("wss://$host:$port/ws") }
-            // TLS fingerprint: we rely on the daemon's /api/v1/cert endpoint
-            // for the source of truth; the bridge client only pins what
-            // PrefsRepository handed us. Skipping live cert introspection for
-            // MVP — OkHttp does not expose SSLSession on a default WebSocket.
             _status.value = BridgeStatus.Connected(host, port, pinnedFingerprint ?: "")
             pumpLoop(session)
         } finally {
@@ -149,4 +167,16 @@ class BridgeClient @Inject constructor() {
         stop()
         scope.cancel()
     }
+}
+
+/**
+ * M5 placeholder. Accepts any server cert. Replaced in M5+ by a
+ * fingerprint-pinning X509TrustManager that compares the peer cert's
+ * SHA-256 against the value stored in `PrefsRepository.fingerprint`.
+ */
+private object AcceptAnyTrustManager : X509TrustManager {
+    private val accepted = arrayOf<X509Certificate>()
+    override fun checkClientTrusted(c: Array<out X509Certificate>, a: String) {}
+    override fun checkServerTrusted(c: Array<out X509Certificate>, a: String) {}
+    override fun getAcceptedIssuers(): Array<X509Certificate> = accepted
 }

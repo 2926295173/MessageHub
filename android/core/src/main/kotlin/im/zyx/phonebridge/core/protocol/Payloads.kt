@@ -1,151 +1,179 @@
 package im.zyx.phonebridge.core.protocol
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-// --- device discovery / pairing ---------------------------------------
-
-@Serializable
-data class DeviceInfo(
-    val deviceId: String,
-    val name: String,
-    val model: String,
-    val osVersion: String,
-    val appVersion: String
-)
+// ============================================================================
+// device lifecycle
+// ============================================================================
 
 @Serializable
 data class DeviceHelloPayload(
-    val device: DeviceInfo,
-    val certificate: String
+    val name: String,
+    val device_type: DeviceType,
+    val protocol_version: Int,
+    val pubkey: String,
+    val port: Int? = null,
+    val manufacturer: String? = null,
+    val model: String? = null
 )
 
 @Serializable
+data class DeviceHeartbeatPayload(
+    val rtt_ms: Int? = null
+)
+
+@Serializable
+data class DeviceInfoUpdatePayload(
+    val battery_level: Int? = null,
+    val is_charging: Boolean? = null,
+    val network_type: NetworkType? = null,
+    val android_version: String? = null,
+    val app_version: String? = null
+)
+
+// ============================================================================
+// pairing
+// ============================================================================
+
+@Serializable
 data class PairRequestPayload(
-    val desktop: DeviceInfo,
-    val code: String
+    val ephemeral_pubkey: String
 )
 
 @Serializable
 data class PairChallengePayload(
-    val code: String
+    val ephemeral_pubkey: String,
+    val code: String,
+    val expires_at: Long
 )
 
 @Serializable
 data class PairConfirmPayload(
-    val code: String
+    val accepted: Boolean
 )
 
 @Serializable
-data class PairResultPayload(
-    val accepted: Boolean,
+class PairAcceptPayload
+
+@Serializable
+data class PairRejectPayload(
     val reason: String? = null
 )
 
 @Serializable
-data class PairedPayload(
-    val device: DeviceInfo
+data class PairCompletePayload(
+    val cert_pem: String,
+    val cert_fingerprint: String
 )
 
 @Serializable
 data class UnpairPayload(
-    val deviceId: String
+    val reason: String? = null
 )
 
-// --- notifications -----------------------------------------------------
+// ============================================================================
+// notifications
+// ============================================================================
 
 @Serializable
 data class NotificationReceivedPayload(
-    val notifId: String,
-    val packageName: String,
-    val appLabel: String,
+    val id: String,
+    val package_name: String,
+    val app_name: String? = null,
     val title: String,
-    val text: String,
-    val postedAt: Long
+    val content: String,
+    val posted_at: Long,
+    val is_sensitive: Boolean = false,
+    val category: String? = null
 )
 
 @Serializable
 data class NotificationDismissedPayload(
-    val notifId: String
+    val id: String
 )
 
-// --- sms ---------------------------------------------------------------
+// ============================================================================
+// sms
+// ============================================================================
 
 @Serializable
 data class SmsReceivedPayload(
-    val smsId: String,
+    val id: String,
     val address: String,
     val body: String,
-    val receivedAt: Long
+    val received_at: Long,
+    val sim_slot: Int? = null,
+    val subscription_id: Int? = null
 )
 
 @Serializable
-data class SmsSendPayload(
-    val address: String,
-    val body: String
+data class SmsSendRequestPayload(
+    val to: String,
+    val body: String,
+    val subscription_id: Int? = null
 )
 
 @Serializable
 data class SmsSendResultPayload(
-    val success: Boolean,
-    val error: String? = null
+    val request_id: String,
+    val ok: Boolean,
+    val error_code: String? = null,
+    val error_message: String? = null
 )
 
-// --- calls -------------------------------------------------------------
+@Serializable
+data class SmsListRequestPayload(
+    val limit: Int? = null,
+    val before: Long? = null
+)
+
+@Serializable
+data class SmsListResultPayload(
+    val messages: List<SmsReceivedPayload>
+)
+
+// ============================================================================
+// calls
+// ============================================================================
 
 @Serializable
 data class CallStatePayload(
-    val callId: String,
-    val state: String,
-    val number: String
+    val state: CallStateKind,
+    val phone_number: String? = null,
+    val call_id: String? = null,
+    val contact_name: String? = null,
+    val sim_slot: Int? = null
 )
 
 @Serializable
 data class CallIncomingPayload(
-    val callId: String,
+    val phone_number: String,
+    val contact_name: String? = null,
+    val sim_slot: Int? = null
+)
+
+@Serializable
+class CallAnswerRequestPayload
+
+@Serializable
+class CallEndRequestPayload
+
+@Serializable
+data class CallDialRequestPayload(
     val number: String
 )
 
 @Serializable
-data class CallAnswerPayload(
-    val callId: String
+data class CallHistoryEntryPayload(
+    val phone_number: String,
+    val contact_name: String? = null,
+    val started_at: Long,
+    val duration_seconds: Int? = null,
+    val direction: CallDirection,
+    val sim_slot: Int? = null
 )
 
 @Serializable
-data class CallEndPayload(
-    val callId: String
-)
-
-@Serializable
-data class CallDialPayload(
-    val number: String
-)
-
-// --- misc --------------------------------------------------------------
-
-@Serializable
-data class BatteryPayload(
-    val level: Int,
-    val charging: Boolean
-)
-
-@Serializable
-data class ClipboardSetPayload(
-    val text: String
-)
-
-@Serializable
-data class PingPayload(
-    val nonce: String
-)
-
-@Serializable
-data class PongPayload(
-    val nonce: String
-)
-
-@Serializable
-data class ErrorPayload(
-    val code: String,
-    val message: String
+data class CallHistoryPayload(
+    val entries: List<CallHistoryEntryPayload>
 )

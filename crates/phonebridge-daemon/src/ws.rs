@@ -31,7 +31,11 @@ pub async fn ws_upgrade(
         state.db.clone(),
         state.console_bus.clone(),
     ));
-    let ctx = WsContext::new(state.our_device_id, sink, state.registry.clone());
+    // Share the AppState's pairing map with this connection so that
+    // REST handlers (e.g. POST /pair/start, /pair/accept) can drive
+    // the Initiator state machine from outside the WS context.
+    let mut ctx = WsContext::new(state.our_device_id, sink, state.registry.clone());
+    ctx.pairing = state.pairing.clone();
     let peer_for_log = peer;
     ws.on_upgrade(move |socket| async move {
         if let Err(e) = ws_handler::handle_axum_connection(socket, peer_for_log, ctx).await {

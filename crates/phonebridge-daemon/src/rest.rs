@@ -59,6 +59,8 @@ pub fn router() -> Router<AppState> {
         .route("/devices/:id", delete(remove_device))
         .route("/pairings", get(list_pairings))
         .route("/pair/start", post(pair_start))
+        .route("/pair/accept", post(pair_accept))
+        .route("/pair/reject", post(pair_reject))
         .route("/notifications", get(list_notifications))
         .route("/notifications/stats", get(notifications_stats))
         .route(
@@ -345,18 +347,212 @@ async fn pair_start(
         )
             .into_response();
     }
+    // Persist the Initiator in the shared PairingMap so the WS handler
+    // can drive it when the device sends back pair.challenge, etc.
+    // We must also drop any prior Responder session that was inserted
+    // on device.hello, otherwise the WS handler's get() would return
+    // the Responder (which is no longer the active role).
+    state.pairing.insert(
+        device_id,
+        phonebridge_net::DeviceSession::Unpaired(
+            phonebridge_net::UnpairedSession::Initiator(initiator),
+        ),
+    );
     info!(%device_id, "pair_start: sent device.pair.request");
-
-    // We don't keep the initiator state in the pairing map for M3 (the
-    // desktop's own pair state isn't part of the WS handler's per-conn
-    // map). The actual state transitions are done in the WS handler
-    // when the responses come back.
 
     (
         StatusCode::OK,
         Json(json!({
             "status": "pair.request sent",
             "device_id": device_id,
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PairAcceptRequest {
+    /// The device id whose pairing should be accepted.
+    pub device_id: Uuid,
+    /// The 6-digit code the user typed (visual confirmation only). Optional
+    /// in MVP: the daemon currently does not re-derive the code (KDF
+    /// verification is the next hardening step). Stored for audit.
+    #[serde(default)]
+    pub code: Option<String>,
+}
+
+/// `POST /api/v1/pair/accept` — accept an in-flight pairing and send
+/// `device.pair.accept` to the device. The user has just typed the
+/// 6-digit code on the desktop and confirmed it matches what Android
+/// shows.
+#[utoipa::path(
+    post,
+    path = "/api/v1/pair/accept",
+    tag = "pairings",
+    request_body = PairAcceptRequest,
+    responses(
+        (status = 200, description = "device.pair.accept sent"),
+        (status = 409, description = "No in-flight pairing for this device"),
+    )
+)]
+async fn pair_accept(
+    State(state): State<AppState>,
+    Json(req): Json<PairAcceptRequest>,
+) -> impl IntoResponse {
+    let device_id = req.device_id;
+    // Pop the Initiator from the shared pairing map (clone so we can
+    // re-insert it for the next stage, where the WS handler will read
+    // it on device.pair.confirm and device.pair.complete).
+    let session = state.pairing.get(&device_id);
+    let mut initiator = match session {
+        Some(phonebridge_net::DeviceSession::Unpaired(
+            phonebridge_net::UnpairedSession::Initiator(i),
+        )) => i,
+        _ => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "no in-flight initiator pairing for this device",
+                    "device_id": device_id,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // Optional: validate the 6-digit code shape (matches the protocol
+    // boundary that ws_handler enforces). We do not recompute the
+    // shared secret here; in MVP the user typing the code on the
+    // desktop is the verification.
+    if let Some(ref code) = req.code {
+        if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "code must be 6 digits",
+                })),
+            )
+                .into_response();
+        }
+        info!(%device_id, code = %code, "pair_accept: user typed code");
+    } else {
+        info!(%device_id, "pair_accept: accepted without typed code (dev shortcut)");
+    }
+
+    let env = match initiator.build_accept_envelope(state.our_device_id) {
+        Ok(e) => e,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("build accept: {e}"),
+            )
+                .into_response();
+        }
+    };
+    if let Err(e) = state.registry.try_send(device_id, env).await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": format!("send failed: {e}"),
+                "device_id": device_id,
+            })),
+        )
+            .into_response();
+    }
+    // Re-insert the Initiator in its post-challenge state so the WS
+    // handler can keep driving it on subsequent device.pair.confirm /
+    // device.pair.complete.
+    state.pairing.insert(
+        device_id,
+        phonebridge_net::DeviceSession::Unpaired(
+            phonebridge_net::UnpairedSession::Initiator(initiator),
+        ),
+    );
+    info!(%device_id, "pair_accept: sent device.pair.accept");
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "pair.accept sent",
+            "device_id": device_id,
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct PairRejectRequest {
+    /// The device id whose pairing should be rejected.
+    pub device_id: Uuid,
+    /// Optional reason text.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// `POST /api/v1/pair/reject` — reject an in-flight pairing and send
+/// `device.pair.reject` to the device.
+#[utoipa::path(
+    post,
+    path = "/api/v1/pair/reject",
+    tag = "pairings",
+    request_body = PairRejectRequest,
+    responses(
+        (status = 200, description = "device.pair.reject sent"),
+        (status = 409, description = "No in-flight pairing for this device"),
+    )
+)]
+async fn pair_reject(
+    State(state): State<AppState>,
+    Json(req): Json<PairRejectRequest>,
+) -> impl IntoResponse {
+    let device_id = req.device_id;
+    let reason = req.reason.as_deref().unwrap_or("rejected by user");
+    let session = state.pairing.get(&device_id);
+    let mut initiator = match session {
+        Some(phonebridge_net::DeviceSession::Unpaired(
+            phonebridge_net::UnpairedSession::Initiator(i),
+        )) => i,
+        _ => {
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({
+                    "error": "no in-flight initiator pairing for this device",
+                    "device_id": device_id,
+                })),
+            )
+                .into_response();
+        }
+    };
+    let env = match initiator.build_reject_envelope(state.our_device_id, reason) {
+        Ok(e) => e,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("build reject: {e}"),
+            )
+                .into_response();
+        }
+    };
+    if let Err(e) = state.registry.try_send(device_id, env).await {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "error": format!("send failed: {e}"),
+                "device_id": device_id,
+            })),
+        )
+            .into_response();
+    }
+    // Drop the session.
+    state.pairing.remove(&device_id);
+    info!(%device_id, reason, "pair_reject: sent device.pair.reject");
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "pair.reject sent",
+            "device_id": device_id,
+            "reason": reason,
         })),
     )
         .into_response()

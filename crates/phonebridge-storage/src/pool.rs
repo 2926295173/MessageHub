@@ -68,20 +68,20 @@ impl Db {
     // devices
     // ========================================================================
 
-    /// Insert or update a device row.
+    /// Insert or update a device row. The row's `id` (INTEGER PRIMARY KEY)
+    /// is left to SQLite's auto-increment on first insert and kept
+    /// unchanged on subsequent upserts; the unique key is `device_id`.
     pub async fn upsert_device(&self, d: &DeviceRow) -> Result<(), DbError> {
         sqlx::query(
             r#"
-            INSERT INTO devices (id, name, device_id, public_key, last_seen, paired)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO devices (name, device_id, public_key, last_seen, paired)
+            VALUES (?1, ?2, ?3, ?4, ?5)
             ON CONFLICT(device_id) DO UPDATE SET
                 name = excluded.name,
                 public_key = excluded.public_key,
-                last_seen = excluded.last_seen,
-                paired = excluded.paired
+                last_seen = excluded.last_seen
             "#,
         )
-        .bind(d.id)
         .bind(&d.name)
         .bind(d.device_id)
         .bind(&d.public_key)

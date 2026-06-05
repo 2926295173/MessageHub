@@ -108,6 +108,39 @@ impl PairingMap {
         g.get(device_id).map(clone_session)
     }
 
+    /// Remove and return the `Initiator` state machine for this device,
+    /// if one is in flight. Used by the WS handler to drive the
+    /// initiator state transitions on `pair.challenge` / `pair.confirm` /
+    /// `pair.complete`. The caller is responsible for re-inserting
+    /// the (mutated) initiator back into the map after the transition.
+    pub fn take_unpaired_initiator(&self, device_id: &Uuid) -> Option<Initiator> {
+        let mut g = self.inner.lock();
+        match g.remove(device_id) {
+            Some(DeviceSession::Unpaired(UnpairedSession::Initiator(i))) => Some(i),
+            other => {
+                if let Some(s) = other {
+                    g.insert(*device_id, s);
+                }
+                None
+            }
+        }
+    }
+
+    /// Remove and return the `Responder` state machine for this device,
+    /// if one is in flight. Symmetric with `take_unpaired_initiator`.
+    pub fn take_unpaired_responder(&self, device_id: &Uuid) -> Option<Responder> {
+        let mut g = self.inner.lock();
+        match g.remove(device_id) {
+            Some(DeviceSession::Unpaired(UnpairedSession::Responder(r))) => Some(r),
+            other => {
+                if let Some(s) = other {
+                    g.insert(*device_id, s);
+                }
+                None
+            }
+        }
+    }
+
     /// Remove a session.
     pub fn remove(&self, device_id: &Uuid) -> Option<DeviceSession> {
         self.inner.lock().remove(device_id)
@@ -528,89 +561,98 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
         }
         MessageType::DevicePairChallenge => {
             let peer_id = env.device_id;
-            let session = ctx.pairing.get(&peer_id);
-            let initiator = match session {
-                Some(DeviceSession::Unpaired(UnpairedSession::Initiator(i))) => Some(i),
-                _ => None,
+            let mut init = match ctx.pairing.take_unpaired_initiator(&peer_id) {
+                Some(i) => i,
+                None => {
+                    warn!(%peer_id, "ws: pair.challenge for unknown initiator session");
+                    return None;
+                }
             };
-            if let Some(mut init) = initiator {
-                ctx.pairing.remove(&peer_id);
-                let r = init.on_challenge(env, our_id);
-                let reply = match &r {
-                    Ok(_) => init.build_accept_envelope(our_id).ok(),
-                    Err(e) => init.build_reject_envelope(our_id, &e.to_string()).ok(),
-                };
-                ctx.pairing.insert(peer_id, DeviceSession::Unpaired(UnpairedSession::Initiator(init)));
-                reply
-            } else {
-                warn!(%peer_id, "ws: pair.challenge for unknown initiator session");
-                None
-            }
+            let r = init.on_challenge(env, our_id);
+            let reply = match &r {
+                Ok(_) => init.build_accept_envelope(our_id).ok(),
+                Err(e) => init.build_reject_envelope(our_id, &e.to_string()).ok(),
+            };
+            ctx.pairing.insert(
+                peer_id,
+                DeviceSession::Unpaired(UnpairedSession::Initiator(init)),
+            );
+            reply
         }
         MessageType::DevicePairConfirm => {
             let peer_id = env.device_id;
-            let session = ctx.pairing.get(&peer_id);
-            if let Some(DeviceSession::Unpaired(UnpairedSession::Initiator(init))) = session {
-                ctx.pairing.remove(&peer_id);
-                let confirm: PairConfirm = env.parse_payload().unwrap_or(PairConfirm { accepted: false });
-                if confirm.accepted {
-                    let reply = init.build_complete_envelope(our_id).ok();
-                    ctx.pairing.insert(peer_id, DeviceSession::Unpaired(UnpairedSession::Initiator(init)));
-                    reply
-                } else {
-                    None
+            let mut init = match ctx.pairing.take_unpaired_initiator(&peer_id) {
+                Some(i) => i,
+                None => {
+                    warn!(%peer_id, "ws: pair.confirm for unknown initiator session");
+                    return None;
                 }
+            };
+            let confirm: PairConfirm = env
+                .parse_payload()
+                .unwrap_or(PairConfirm { accepted: false });
+            if confirm.accepted {
+                let reply = init.build_complete_envelope(our_id).ok();
+                ctx.pairing.insert(
+                    peer_id,
+                    DeviceSession::Unpaired(UnpairedSession::Initiator(init)),
+                );
+                reply
             } else {
-                warn!(%peer_id, "ws: pair.confirm for unknown session");
+                // User rejected on Android. Drop the initiator; the
+                // device stays unpaired.
                 None
             }
         }
         MessageType::DevicePairComplete => {
             let peer_id = env.device_id;
-            let session = ctx.pairing.get(&peer_id);
-            match session {
-                Some(DeviceSession::Unpaired(UnpairedSession::Initiator(init))) => {
-                    ctx.pairing.remove(&peer_id);
-                    let outcome: Result<PairingOutcome, _> = init.on_complete(env);
-                    match outcome {
-                        Ok(o) => {
-                            info!(%peer_id, fingerprint = %o.peer_fingerprint, "ws: paired (initiator)");
-                            ctx.pairing.insert(peer_id, DeviceSession::Paired(PairedSession {
+            // First try as Initiator (desktop-driven flow).
+            if let Some(init) = ctx.pairing.take_unpaired_initiator(&peer_id) {
+                let outcome: Result<PairingOutcome, _> = init.on_complete(env);
+                match outcome {
+                    Ok(o) => {
+                        info!(%peer_id, fingerprint = %o.peer_fingerprint, "ws: paired (initiator)");
+                        ctx.pairing.insert(
+                            peer_id,
+                            DeviceSession::Paired(PairedSession {
                                 device_id: peer_id,
                                 name: "(unknown)".into(),
                                 cert_fingerprint: o.peer_fingerprint.clone(),
-                            }));
-                            None
-                        }
-                        Err(e) => {
-                            warn!(%peer_id, "ws: pair.complete rejected: {e}");
-                            None
-                        }
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        warn!(%peer_id, "ws: pair.complete rejected (initiator): {e}");
                     }
                 }
-                Some(DeviceSession::Unpaired(UnpairedSession::Responder(r))) => {
-                    ctx.pairing.remove(&peer_id);
-                    match r.on_complete(env) {
-                        Ok(o) => {
-                            info!(%peer_id, fingerprint = %o.peer_fingerprint, "ws: paired (responder)");
-                            ctx.pairing.insert(peer_id, DeviceSession::Paired(PairedSession {
+                return None;
+            }
+            // Else, the device.hello inserted a Responder for us, and
+            // the Android is now sending us its cert after the user
+            // accepted. Pull it out.
+            let responder = ctx.pairing.take_unpaired_responder(&peer_id);
+            match responder {
+                Some(r) => match r.on_complete(env) {
+                    Ok(o) => {
+                        info!(%peer_id, fingerprint = %o.peer_fingerprint, "ws: paired (responder)");
+                        ctx.pairing.insert(
+                            peer_id,
+                            DeviceSession::Paired(PairedSession {
                                 device_id: peer_id,
                                 name: "(unknown)".into(),
                                 cert_fingerprint: o.peer_fingerprint.clone(),
-                            }));
-                            None
-                        }
-                        Err(e) => {
-                            warn!(%peer_id, "ws: pair.complete rejected: {e}");
-                            None
-                        }
+                            }),
+                        );
                     }
-                }
-                _ => {
+                    Err(e) => {
+                        warn!(%peer_id, "ws: pair.complete rejected (responder): {e}");
+                    }
+                },
+                None => {
                     warn!(%peer_id, "ws: pair.complete for unknown session");
-                    None
                 }
             }
+            None
         }
         MessageType::DevicePairAccept
         | MessageType::DevicePairReject => None,

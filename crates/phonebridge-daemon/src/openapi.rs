@@ -49,6 +49,8 @@ use crate::rest::{
         crate::rest::remove_device,
         crate::rest::list_pairings,
         crate::rest::pair_start,
+        crate::rest::pair_accept,
+        crate::rest::pair_reject,
         crate::rest::list_notifications,
         crate::rest::notifications_stats,
         crate::rest::mark_notification_read,
@@ -67,7 +69,8 @@ use crate::rest::{
         SmsListResponse, SmsRow, SmsConversationsResponse, SmsConversation,
         CallsResponse, CallRow, DashboardBody, NotificationCounts, SmsCounts, CallCounts,
         AuditListResponse, AuditLogRow,
-        crate::rest::PairStartRequest, crate::rest::SendSmsRequest, crate::rest::DialRequest,
+        crate::rest::PairStartRequest, crate::rest::PairAcceptRequest, crate::rest::PairRejectRequest,
+        crate::rest::SendSmsRequest, crate::rest::DialRequest,
     )),
     tags(
         (name = "health", description = "Liveness / readiness probes"),

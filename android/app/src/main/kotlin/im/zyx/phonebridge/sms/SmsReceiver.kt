@@ -11,6 +11,7 @@ import im.zyx.phonebridge.core.protocol.MessageType
 import im.zyx.phonebridge.core.protocol.SmsReceivedPayload
 import im.zyx.phonebridge.core.protocol.json
 import im.zyx.phonebridge.network.BridgeClient
+import im.zyx.phonebridge.pairing.PairingMachine
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -23,39 +24,40 @@ private const val TAG = "SmsReceiver"
 
 /**
  * Receives incoming SMS via the system broadcast and forwards a
- * `sms.received` envelope to the daemon.
+ * `sms.received` envelope to the daemon. Wire shape matches the
+ * Rust `SmsReceived` struct.
  *
- * Permissions:
- *   - RECEIVE_SMS (granted by user at runtime)
+ * Permissions: RECEIVE_SMS (granted at runtime).
  */
 @AndroidEntryPoint
 class SmsReceiver : BroadcastReceiver() {
 
     @Inject lateinit var client: BridgeClient
+    @Inject lateinit var pairing: PairingMachine
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
-        // Concatenated messages share the same originatingAddress.
-        // We join their displayBodies and assign a single synthetic id.
         val sender = messages.firstOrNull()?.displayOriginatingAddress ?: return
         val body = messages.joinToString(separator = "") { it.displayMessageBody.orEmpty() }
         val receivedAt = messages.firstOrNull()?.timestampMillis ?: System.currentTimeMillis()
 
         val payload = SmsReceivedPayload(
-            smsId = UUID.randomUUID().toString(),
+            id = UUID.randomUUID().toString(),
             address = sender,
             body = body,
-            receivedAt = receivedAt
+            received_at = receivedAt,
+            sim_slot = null,
+            subscription_id = null
         )
         val env = Envelope(
+            v = 1,
             id = UUID.randomUUID().toString(),
+            ts = Instant.ofEpochMilli(receivedAt).toEpochMilli(),
             type = MessageType.SMS_RECEIVED,
-            from = "android",
-            to = "daemon",
-            ts = Instant.ofEpochMilli(receivedAt).toString(),
+            device_id = pairing.ourDeviceId(),
             payload = json.encodeToJsonElement(SmsReceivedPayload.serializer(), payload)
         )
         scope.launch { client.send(env) }

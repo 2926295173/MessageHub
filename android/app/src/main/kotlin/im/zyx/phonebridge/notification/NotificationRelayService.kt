@@ -11,6 +11,7 @@ import im.zyx.phonebridge.core.protocol.MessageType
 import im.zyx.phonebridge.core.protocol.NotificationReceivedPayload
 import im.zyx.phonebridge.core.protocol.json
 import im.zyx.phonebridge.network.BridgeClient
+import im.zyx.phonebridge.pairing.PairingMachine
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
@@ -22,20 +23,19 @@ import kotlinx.coroutines.launch
 private const val TAG = "NotifRelay"
 
 /**
- * Receives every posted system notification and forwards a summary
- * envelope to the daemon over the [BridgeClient] connection.
+ * Receives every posted system notification and forwards a
+ * `notification.received` envelope to the daemon over the
+ * [BridgeClient] connection. Wire shape matches the Rust
+ * `NotificationReceived` struct in `phonebridge-proto/src/payload.rs`.
  *
  * Permissions:
  *   - BIND_NOTIFICATION_LISTENER_SERVICE (system, granted in Settings)
- *
- * We do *not* call [cancelNotification] on dismiss; the daemon is the
- * source of truth and can ask us to dismiss via the reverse channel
- * (out of scope for MVP).
  */
 @AndroidEntryPoint
 class NotificationRelayService : NotificationListenerService() {
 
     @Inject lateinit var client: BridgeClient
+    @Inject lateinit var pairing: PairingMachine
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -47,26 +47,28 @@ class NotificationRelayService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val n = sbn.notification ?: return
         val ex = n.extras
-        val title = ex?.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-        val text = ex?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        val title = ex?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = ex?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         val big = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ex?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
         } else null
 
         val payload = NotificationReceivedPayload(
-            notifId = sbn.key,
-            packageName = sbn.packageName,
-            appLabel = appLabelFor(sbn.packageName),
+            id = sbn.key,
+            package_name = sbn.packageName,
+            app_name = appLabelFor(sbn.packageName),
             title = title,
-            text = (big ?: text),
-            postedAt = sbn.postTime
+            content = big ?: text,
+            posted_at = sbn.postTime,
+            is_sensitive = false,
+            category = n.category
         )
         val env = Envelope(
+            v = 1,
             id = UUID.randomUUID().toString(),
+            ts = Instant.ofEpochMilli(sbn.postTime).toEpochMilli(),
             type = MessageType.NOTIFY_RECEIVED,
-            from = "android",
-            to = "daemon",
-            ts = Instant.ofEpochMilli(sbn.postTime).toString(),
+            device_id = pairing.ourDeviceId(),
             payload = json.encodeToJsonElement(NotificationReceivedPayload.serializer(), payload)
         )
         scope.launch { client.send(env) }
@@ -85,7 +87,6 @@ class NotificationRelayService : NotificationListenerService() {
     }
 
     override fun onDestroy() {
-        scope.launch { /* nothing to flush */ }
         super.onDestroy()
     }
 }

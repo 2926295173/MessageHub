@@ -31,6 +31,7 @@ object AppModule {
     @Provides @Singleton
     fun provideCallController(
         @ApplicationContext context: Context,
-        client: BridgeClient
-    ): CallController = CallController(context, client)
+        client: BridgeClient,
+        pairing: PairingMachine
+    ): CallController = CallController(context, client, pairing)
 }

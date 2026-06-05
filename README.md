@@ -2,7 +2,7 @@
 
 > LAN-first, self-hosted, cross-platform bridge to manage multiple Android phones from a single desktop daemon.
 
-**Status:** 🚧 Pre-alpha / under active development. MVP scope: device pairing, notification sync, SMS send/receive, call control.
+**Status:** 🚧 Pre-alpha / under active development. MVP scope: device pairing, notification sync, SMS send/receive, call control. Milestones: M0 ✅ scaffold · M1 ✅ daemon · M2 ✅ discovery/pairing/WS · M3 ✅ business channels · M4 ✅ CI/OpenAPI/live push · **M5 ✅ Android client** · M6 hardening.
 
 ## What it is
 

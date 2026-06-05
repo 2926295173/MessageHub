@@ -14,7 +14,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import im.zyx.phonebridge.PhoneBridgeApp
 import im.zyx.phonebridge.R
 import im.zyx.phonebridge.core.protocol.DeviceHelloPayload
-import im.zyx.phonebridge.core.protocol.DeviceInfo
+import im.zyx.phonebridge.core.protocol.DeviceType
 import im.zyx.phonebridge.core.protocol.Envelope
 import im.zyx.phonebridge.core.protocol.MessageType
 import im.zyx.phonebridge.core.protocol.json
@@ -22,7 +22,6 @@ import im.zyx.phonebridge.data.PrefsRepository
 import im.zyx.phonebridge.pairing.PairingMachine
 import im.zyx.phonebridge.ui.MainActivity
 import java.time.Instant
-import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
@@ -39,13 +38,12 @@ private const val TAG = "BridgeService"
  * On start it:
  *  1. Reads the last known desktop host/port + cert fingerprint from
  *     [PrefsRepository] and kicks the client off.
- *  2. Pumps incoming envelopes into the pairing state machine, dispatching
- *     pair.challenge / pair.result messages to [PairingMachine].
- *  3. Posts a low-priority persistent notification so the user can see
- *     the bridge is up.
- *
- * On stop, the foreground notification is removed and the client is
- * told to shut down.
+ *  2. Sends `device.hello` right after the TLS-WS upgrade so the
+ *     daemon inserts a Responder session keyed by our device id.
+ *  3. Dispatches every incoming envelope: pairing messages go to
+ *     [PairingMachine]; the rest are logged.
+ *  4. Posts a low-priority persistent notification so the user can
+ *     see the bridge is up.
  */
 @AndroidEntryPoint
 class BridgeService : LifecycleService() {
@@ -55,10 +53,9 @@ class BridgeService : LifecycleService() {
     @Inject lateinit var pairing: PairingMachine
     @Inject lateinit var nsd: NsdRegistrar
 
-    private val ourDeviceId: String by lazy { UUID.randomUUID().toString() }
-
     override fun onCreate() {
         super.onCreate()
+        pairing.ensureIdentity("phonebridge-android")
         startInForeground("Connecting…")
         observe()
         kickoff()
@@ -92,42 +89,53 @@ class BridgeService : LifecycleService() {
                     val text = when (s) {
                         is BridgeStatus.Disconnected -> "Idle"
                         is BridgeStatus.Connecting -> "Connecting to ${s.host}:${s.port}"
-                        is BridgeStatus.Connected -> "Connected to ${s.host}:${s.port}"
+                        is BridgeStatus.Connected -> {
+                            // Send hello on first Connected transition.
+                            sendHello()
+                            "Connected to ${s.host}:${s.port}"
+                        }
                         is BridgeStatus.Error -> "Error: ${s.message}"
                     }
                     refreshNotification(text)
                 }
         }
         lifecycleScope.launch {
-            pairing.state.collectLatest { Log.d(TAG, "pairing: $it") }
+            pairing.state.collectLatest { s -> Log.d(TAG, "pairing: $s") }
         }
         lifecycleScope.launch {
             client.incoming.collect { env -> handleIncoming(env) }
         }
     }
 
-    private suspend fun handleIncoming(env: Envelope) {
+    private fun handleIncoming(env: Envelope) {
         when (env.type) {
-            MessageType.DEVICE_PAIR_CHALLENGE -> {
-                val confirm = pairing.onChallenge(env) ?: return
-                client.send(confirm)
+            MessageType.DEVICE_PAIR_REQUEST -> {
+                val reply = pairing.onRequest(env) ?: return
+                client.send(reply)
             }
-            MessageType.DEVICE_PAIR_RESULT -> {
-                pairing.onResult(env, ourDeviceId)
+            MessageType.DEVICE_PAIR_ACCEPT -> {
+                val reply = pairing.onAccept(env, ourDeviceId = pairing.ourDeviceId())
+                client.send(reply)
+            }
+            MessageType.DEVICE_PAIR_REJECT -> {
+                pairing.onReject(env)
+            }
+            MessageType.DEVICE_PAIR_COMPLETE -> {
+                val reply = pairing.onComplete(env, ourDeviceId = pairing.ourDeviceId()) ?: return
+                client.send(reply)
             }
             else -> Log.d(TAG, "incoming ${env.type} (id=${env.id})")
         }
     }
 
     private fun kickoff() {
-        // Ensure we have a stable device id persisted.
+        // Persist the device id the first time we run.
         lifecycleScope.launch {
             val saved = prefs.deviceId.first()
-            if (saved == null) prefs.setDeviceId(ourDeviceId)
-            else Log.d(TAG, "our deviceId = $saved")
+            if (saved == null) prefs.setDeviceId(pairing.ourDeviceId())
         }
-        // Wait until the user has stored a desktop host/port in prefs.
-        // (PairingScreen writes it after a successful mDNS resolve.)
+        // Wait until the user has stored a desktop host/port in prefs
+        // (PairingScreen writes it after a successful mDNS resolve).
         lifecycleScope.launch {
             combine(
                 prefs.desktopHost,
@@ -140,29 +148,35 @@ class BridgeService : LifecycleService() {
                 val port = portStr.toIntOrNull() ?: return@collectLatest
                 Log.d(TAG, "starting client at $host:$port fp=$fp")
                 client.start(host, port, fp)
-                sendHello()
             }
         }
     }
 
     private fun sendHello() {
-        val deviceId = ourDeviceId
-        val info = DeviceInfo(
-            deviceId = deviceId,
-            name = android.os.Build.MODEL ?: "Android",
-            model = (android.os.Build.MANUFACTURER ?: "?") + " " + (android.os.Build.MODEL ?: "?"),
-            osVersion = "Android " + android.os.Build.VERSION.RELEASE,
-            appVersion = "0.1.0"
-        )
+        val ourId = pairing.ourDeviceId()
+        val pubB64 = try {
+            pairing.longTermPublicBase64
+        } catch (t: Throwable) {
+            Log.w(TAG, "no long-term key: $t")
+            "stub"
+        }
         val hello = Envelope(
-            id = UUID.randomUUID().toString(),
+            v = 1,
+            id = java.util.UUID.randomUUID().toString(),
+            ts = Instant.now().toEpochMilli(),
             type = MessageType.DEVICE_HELLO,
-            from = deviceId,
-            to = "daemon",
-            ts = Instant.now().toString(),
+            device_id = ourId,
             payload = json.encodeToJsonElement(
                 DeviceHelloPayload.serializer(),
-                DeviceHelloPayload(device = info, certificate = "stub")
+                DeviceHelloPayload(
+                    name = android.os.Build.MODEL ?: "Android",
+                    device_type = DeviceType.Android,
+                    protocol_version = 1,
+                    pubkey = pubB64,
+                    port = null,
+                    manufacturer = android.os.Build.MANUFACTURER,
+                    model = android.os.Build.MODEL
+                )
             )
         )
         client.send(hello)
