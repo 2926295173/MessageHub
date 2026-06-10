@@ -45,32 +45,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (deny warnings)
-        id: clippy
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo clippy --workspace --all-targets 2>&1 | tee /tmp/clippy.log
-          exit ${PIPESTATUS[0]}
-
-      - name: Show clippy failures
-        if: always() && hashFiles('/tmp/clippy.log') != ''
-        run: |
-          echo "## clippy stderr (last 200 lines)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -200 /tmp/clippy.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          if [ "${{ steps.clippy.outcome }}" = "failure" ]; then
-            exit 1
-          fi
-
-      - name: Upload clippy log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: clippy-log
-          path: /tmp/clippy.log
-          if-no-files-found: ignore
+        run: cargo clippy --workspace --all-targets
 
       - name: Build (with embedded frontend)
         run: |

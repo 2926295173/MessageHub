@@ -37,6 +37,17 @@ echo "=== setup message-center data dir ==="
 PHONEBRIDGE_DATA_DIR="$DATA_DIR" PHONEBRIDGE_CONFIG_DIR="$CONFIG_DIR" \
     bash "$REPO_ROOT/scripts/setup.sh" >/dev/null
 
+# Pre-build the message-center binary so the 20s readiness wait
+# below isn't racing a cold cargo build. CI runners that hit
+# a fresh cache (or `cargo run --quiet` that hasn't yet
+# linked) would otherwise time out and the smoke would fail
+# for reasons unrelated to the wire protocol under test.
+echo "=== pre-build message-center ==="
+( cd "$REPO_ROOT" && cargo build -p message-center >/dev/null 2>&1 ) || {
+    echo "  cargo build failed" >&2
+    exit 1
+}
+
 echo "=== start message-center (background) ==="
 (
     cd "$REPO_ROOT"
