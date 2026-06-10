@@ -256,7 +256,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::CallIncoming, envelope_id, device_id, env);
     }
 
-    async fn on_call_history(&self, envelope_id: Uuid, device_id: Uuid, env: &CallHistory) {
+    async fn on_call_history(&self, _envelope_id: Uuid, device_id: Uuid, env: &CallHistory) {
         for entry in &env.entries {
             let row = CallRow {
                 id: 0,

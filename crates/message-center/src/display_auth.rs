@@ -32,6 +32,7 @@
 #![forbid(unsafe_code)]
 #![allow(missing_docs)]
 
+#[allow(unused_imports)]
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 

@@ -46,6 +46,7 @@ pub trait DisplayBackend: Send + Sync {
 /// a no-op stub on platforms we don't support yet (e.g.
 /// non-Linux Unix, Windows, macOS — PR9 + PR10 will plug
 /// in those backends).
+#[allow(unused_assignments, clippy::needless_return)]
 pub fn create(cfg: &DisplayConfig) -> Result<Box<dyn DisplayBackend>, DisplayError> {
     #[cfg(target_os = "linux")]
     {

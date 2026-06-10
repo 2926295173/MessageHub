@@ -45,6 +45,8 @@
 //!   ultimately calls `TelecomManager.answerRingingCall()`
 //!   / `endCall()`.
 
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -81,6 +83,7 @@ struct NotificationMap {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct NotifRef {
     envelope_id: Uuid,
     device_id: Uuid,
@@ -590,6 +593,7 @@ fn action_for_key(action_key: &str, r: &NotifRef) -> Option<DisplayAction> {
     default_service = "org.freedesktop.Notifications",
     default_path = "/org/freedesktop/Notifications"
 )]
+#[allow(clippy::too_many_arguments)]
 trait Notifications {
     async fn notify(
         &self,

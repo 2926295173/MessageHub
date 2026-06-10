@@ -97,6 +97,7 @@ pub const TRANSIENT_CATEGORIES: &[&str] = &["progress", "service", "transport", 
 ///
 /// Add a new noise class by appending a tuple here. The
 /// [`should_filter`] function does not need to be edited.
+#[allow(clippy::type_complexity)]
 const NOISE_FILTERS: &[(&str, fn(&DisplayEvent) -> bool)] = &[
     // ---- kind-based: cheap, no payload access ----
     ("is_heartbeat", |e| e.kind == "device.heartbeat"),

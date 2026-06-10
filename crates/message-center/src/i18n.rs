@@ -388,10 +388,10 @@ const LOCALES: &[&str] = &["zh", "en"];
  * environment variables, in priority order:
  *
  *   1. `LC_ALL`   — explicit override, almost always set on
- *                   purpose-built deployments.
+ *      purpose-built deployments.
  *   2. `LC_MESSAGES` — locale category for program messages.
  *   3. `LANG`     — the historical default; almost every
- *                   desktop distro sets this (e.g. `zh_CN.UTF-8`).
+ *      desktop distro sets this (e.g. `zh_CN.UTF-8`).
  *
  * The raw value is typically a string like `zh_CN.UTF-8` or
  * `en_US.utf8`; we extract the language prefix (the part

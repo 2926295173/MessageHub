@@ -31,6 +31,7 @@ use serde::Deserialize;
 use crate::config::DisplayConfig;
 
 #[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)]
 struct I18nResponse {
     #[serde(default)]
     default_locale: Option<String>,
@@ -115,6 +116,7 @@ impl DisplayI18n {
     }
 
     /// Number of keys loaded (used by tests).
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.dict.len()
     }
