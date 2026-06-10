@@ -16,11 +16,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::SinkExt;
 use phonebridge_net::ws_handler::{self, WsContext, WsSink};
-use phonebridge_proto::{
-    DeviceHello, DeviceType, Envelope, MessageType, NotificationReceived,
-};
-use phonebridge_storage::Db;
+use phonebridge_proto::{DeviceHello, DeviceType, Envelope, MessageType, NotificationReceived};
 use phonebridge_storage::models::SmsDirection;
+use phonebridge_storage::Db;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{client_async, WebSocketStream};
@@ -60,7 +58,9 @@ impl WsSink for CountingSink {
         device_id: Uuid,
         env: &NotificationReceived,
     ) {
-        self.inner.on_notification(envelope_id, device_id, env).await;
+        self.inner
+            .on_notification(envelope_id, device_id, env)
+            .await;
         self.counter.lock().unwrap().notification += 1;
     }
     async fn on_notification_dismissed(
@@ -79,7 +79,9 @@ impl WsSink for CountingSink {
         device_id: Uuid,
         env: &phonebridge_proto::SmsReceived,
     ) {
-        self.inner.on_sms_received(envelope_id, device_id, env).await;
+        self.inner
+            .on_sms_received(envelope_id, device_id, env)
+            .await;
         self.counter.lock().unwrap().sms_received += 1;
     }
     async fn on_sms_send_result(
@@ -106,7 +108,9 @@ impl WsSink for CountingSink {
         device_id: Uuid,
         env: &phonebridge_proto::CallIncoming,
     ) {
-        self.inner.on_call_incoming(envelope_id, device_id, env).await;
+        self.inner
+            .on_call_incoming(envelope_id, device_id, env)
+            .await;
         self.counter.lock().unwrap().call_incoming += 1;
     }
     async fn on_call_history(
@@ -115,7 +119,9 @@ impl WsSink for CountingSink {
         device_id: Uuid,
         env: &phonebridge_proto::CallHistory,
     ) {
-        self.inner.on_call_history(envelope_id, device_id, env).await;
+        self.inner
+            .on_call_history(envelope_id, device_id, env)
+            .await;
     }
     async fn on_sms_list_result(
         &self,
@@ -127,12 +133,7 @@ impl WsSink for CountingSink {
             .on_sms_list_result(envelope_id, device_id, env)
             .await;
     }
-    async fn on_hello(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &DeviceHello,
-    ) {
+    async fn on_hello(&self, envelope_id: Uuid, device_id: Uuid, env: &DeviceHello) {
         self.inner.on_hello(envelope_id, device_id, env).await;
         self.counter.lock().unwrap().hello += 1;
     }
@@ -198,7 +199,11 @@ async fn ws_dispatch_persists_to_db() {
     .unwrap();
     ws.send(Message::Text(hello.to_json())).await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(counters.lock().unwrap().hello, 1, "hello should be processed once");
+    assert_eq!(
+        counters.lock().unwrap().hello,
+        1,
+        "hello should be processed once"
+    );
 
     // === Send a notification ===
     let n = Envelope::new(
@@ -258,7 +263,10 @@ async fn ws_dispatch_persists_to_db() {
     let _ = task.await;
 
     // === Verify storage ===
-    let notifs = db_arc.list_notifications(None, 100, false, None).await.unwrap();
+    let notifs = db_arc
+        .list_notifications(None, 100, false, None)
+        .await
+        .unwrap();
     assert_eq!(notifs.len(), 1);
     assert_eq!(notifs[0].id, "notif-1");
     assert_eq!(notifs[0].title, "Hello");
@@ -277,8 +285,14 @@ async fn ws_dispatch_persists_to_db() {
     // Audit log should have ws.connected and ws.closed.
     let log = db_arc.list_audit_log(100).await.unwrap();
     let events: Vec<&str> = log.iter().map(|e| e.event.as_str()).collect();
-    assert!(events.contains(&"ws.connected"), "missing ws.connected: {events:?}");
-    assert!(events.contains(&"ws.closed"), "missing ws.closed: {events:?}");
+    assert!(
+        events.contains(&"ws.connected"),
+        "missing ws.connected: {events:?}"
+    );
+    assert!(
+        events.contains(&"ws.closed"),
+        "missing ws.closed: {events:?}"
+    );
 
     // Device row should exist.
     let dev = db_arc.get_device(device_id).await.unwrap();

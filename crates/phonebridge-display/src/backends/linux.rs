@@ -62,7 +62,7 @@ use super::DisplayBackend;
 use crate::actions::ActionSink;
 use crate::config::DisplayConfig;
 use crate::error::DisplayError;
-use crate::i18n::{DisplayI18n, render};
+use crate::i18n::{render, DisplayI18n};
 
 const APP_NAME: &str = "PhoneBridge";
 const REPLY_ACTION: &str = "reply";
@@ -116,7 +116,10 @@ impl LinuxBackend {
         match kind {
             "sms" | "notification" => vec![
                 (REPLY_ACTION.into(), i18n.t("notif.action.reply").into()),
-                (MARK_READ_ACTION.into(), i18n.t("notif.action.mark_read").into()),
+                (
+                    MARK_READ_ACTION.into(),
+                    i18n.t("notif.action.mark_read").into(),
+                ),
                 (DISMISS_ACTION.into(), i18n.t("notif.action.dismiss").into()),
             ],
             "call" => vec![
@@ -145,9 +148,7 @@ impl LinuxBackend {
         };
         let actions = Self::action_list_for("notification", i18n);
         let notif_id_str = notif.id.clone();
-        let notif_id = self
-            .notify(&summary, &body, &actions, Some("im"))
-            .await?;
+        let notif_id = self.notify(&summary, &body, &actions, Some("im")).await?;
         self.map.lock().unwrap().by_notif_id.insert(
             notif_id,
             NotifRef {
@@ -176,9 +177,7 @@ impl LinuxBackend {
         );
         let body = sms.body.clone();
         let actions = Self::action_list_for("sms", i18n);
-        let notif_id = self
-            .notify(&summary, &body, &actions, Some("im"))
-            .await?;
+        let notif_id = self.notify(&summary, &body, &actions, Some("im")).await?;
         self.map.lock().unwrap().by_notif_id.insert(
             notif_id,
             NotifRef {
@@ -207,9 +206,7 @@ impl LinuxBackend {
         );
         let body = call.contact_name.clone().unwrap_or_default();
         let actions = Self::action_list_for("call", i18n);
-        let notif_id = self
-            .notify(&summary, &body, &actions, Some("call"))
-            .await?;
+        let notif_id = self.notify(&summary, &body, &actions, Some("call")).await?;
         self.map.lock().unwrap().by_notif_id.insert(
             notif_id,
             NotifRef {
@@ -245,9 +242,7 @@ impl LinuxBackend {
             )
         };
         let actions = Self::action_list_for("call", i18n);
-        let notif_id = self
-            .notify(&summary, "", &actions, Some("call"))
-            .await?;
+        let notif_id = self.notify(&summary, "", &actions, Some("call")).await?;
         self.map.lock().unwrap().by_notif_id.insert(
             notif_id,
             NotifRef {

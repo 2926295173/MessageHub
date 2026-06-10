@@ -6,7 +6,7 @@
 
 //! ECDH P-256 keypair generation and shared-secret derivation.
 
-use ring::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey, agree_ephemeral};
+use ring::agreement::{self, agree_ephemeral, EphemeralPrivateKey, UnparsedPublicKey};
 use thiserror::Error;
 
 /// 32-byte shared secret.
@@ -36,7 +36,10 @@ impl EphemeralKeyPair {
         }
         let mut public_bytes = [0u8; PUBLIC_KEY_LEN];
         public_bytes.copy_from_slice(pub_slice);
-        Ok(Self { private, public_bytes })
+        Ok(Self {
+            private,
+            public_bytes,
+        })
     }
 
     /// The 65-byte uncompressed public key (`0x04 || X || Y`).
@@ -140,7 +143,10 @@ mod tests {
         let bob_pub = bob.public_key();
         let alice_shared = alice.agree(&bob_pub).unwrap();
         let bob_shared = bob.agree(&alice_pub).unwrap();
-        assert_eq!(alice_shared, bob_shared, "ECDH shared secret must match on both sides");
+        assert_eq!(
+            alice_shared, bob_shared,
+            "ECDH shared secret must match on both sides"
+        );
     }
 
     #[test]

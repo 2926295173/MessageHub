@@ -50,7 +50,10 @@ impl ConsoleEvent {
                 if let Ok(n) = env.parse_payload::<phonebridge_proto::NotificationReceived>() {
                     summary.insert("package".into(), Value::String(n.package));
                     summary.insert("title".into(), Value::String(n.title));
-                    summary.insert("app_name".into(), n.app_name.map(Value::String).unwrap_or(Value::Null));
+                    summary.insert(
+                        "app_name".into(),
+                        n.app_name.map(Value::String).unwrap_or(Value::Null),
+                    );
                 }
             }
             phonebridge_proto::MessageType::SmsReceived => {
@@ -59,7 +62,8 @@ impl ConsoleEvent {
                     summary.insert("body".into(), Value::String(s.body));
                 }
             }
-            phonebridge_proto::MessageType::CallIncoming | phonebridge_proto::MessageType::CallState => {
+            phonebridge_proto::MessageType::CallIncoming
+            | phonebridge_proto::MessageType::CallState => {
                 // (Use raw payload as summary.)
                 summary.insert("raw".into(), env.payload.clone());
             }
@@ -157,11 +161,8 @@ impl Drop for ConsoleSubscriber {
 
 /// Run a single console WS connection. Pushes events until the client
 /// disconnects.
-pub async fn run_console_ws<S>(
-    stream: S,
-    peer: std::net::SocketAddr,
-    bus: ConsoleBus,
-) where
+pub async fn run_console_ws<S>(stream: S, peer: std::net::SocketAddr, bus: ConsoleBus)
+where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let ws = match tokio_tungstenite::accept_async(stream).await {
@@ -184,7 +185,9 @@ pub async fn run_console_ws<S>(
         "summary": {"server": "message-center", "version": env!("CARGO_PKG_VERSION")}
     });
     if let Err(e) = sink
-        .send(tokio_tungstenite::tungstenite::Message::Text(hello.to_string()))
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            hello.to_string(),
+        ))
         .await
     {
         warn!(%peer, "console ws send hello failed: {e}");
@@ -306,13 +309,10 @@ mod tests {
         .unwrap();
         bus.publish(&env);
         // With a subscriber alive, the publish should be delivered.
-        let evt = timeout(
-            tokio::time::Duration::from_secs(2),
-            sub.recv(),
-        )
-        .await
-        .expect("recv timeout")
-        .expect("channel closed");
+        let evt = timeout(tokio::time::Duration::from_secs(2), sub.recv())
+            .await
+            .expect("recv timeout")
+            .expect("channel closed");
         assert_eq!(evt.kind, "notification.received");
         assert_eq!(evt.summary["package"], "x");
         // No need to manually increment counters; just check the subscriber

@@ -216,7 +216,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         let cfg = Config {
-            server: ServerConfig { bind: "0.0.0.0:9999".into(), ..ServerConfig::default() },
+            server: ServerConfig {
+                bind: "0.0.0.0:9999".into(),
+                ..ServerConfig::default()
+            },
             ..Config::default()
         };
         cfg.save_to_file(&path).unwrap();

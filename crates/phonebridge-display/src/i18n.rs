@@ -61,7 +61,9 @@ impl DisplayI18n {
         {
             Ok(resp) => match resp.json::<I18nResponse>().await {
                 Ok(body) => {
-                    let mut s = DisplayI18n { dict: body.dictionary };
+                    let mut s = DisplayI18n {
+                        dict: body.dictionary,
+                    };
                     // Merge in built-in fallbacks for any
                     // missing key — ensures we never display
                     // a raw `notif.action.reply` key.
@@ -79,14 +81,18 @@ impl DisplayI18n {
     /// Built-in English dictionary (used as the
     /// unreachable-daemon fallback).
     pub fn builtin_en() -> Self {
-        DisplayI18n { dict: builtin_en_dict() }
+        DisplayI18n {
+            dict: builtin_en_dict(),
+        }
     }
 
     /// Built-in Chinese dictionary (used as the
     /// unreachable-daemon fallback when the user has
     /// LANG=zh).
     pub fn builtin_zh() -> Self {
-        DisplayI18n { dict: builtin_zh_dict() }
+        DisplayI18n {
+            dict: builtin_zh_dict(),
+        }
     }
 
     /// Detect the locale from environment variables in
@@ -123,13 +129,22 @@ fn builtin_en_dict() -> HashMap<String, String> {
     m.insert("notif.action.answer".into(), "Answer".into());
     m.insert("notif.action.hangup".into(), "Hang up".into());
     m.insert("notif.sms.incoming".into(), "SMS from {address}".into());
-    m.insert("notif.call.incoming".into(), "Incoming call from {number}".into());
+    m.insert(
+        "notif.call.incoming".into(),
+        "Incoming call from {number}".into(),
+    );
     m.insert("notif.call.ongoing".into(), "Ongoing call".into());
     m.insert("prompt.reply.title".into(), "Reply to {address}".into());
     m.insert("prompt.reply.label".into(), "Message".into());
     m.insert("toast.action_sent".into(), "Reply sent".into());
-    m.insert("toast.action_failed".into(), "Action failed: {message}".into());
-    m.insert("toast.phone_offline".into(), "Phone offline; action not delivered".into());
+    m.insert(
+        "toast.action_failed".into(),
+        "Action failed: {message}".into(),
+    );
+    m.insert(
+        "toast.phone_offline".into(),
+        "Phone offline; action not delivered".into(),
+    );
     m
 }
 

@@ -9,7 +9,7 @@
 //! Output format: 32 bytes, rendered as 32 colon-separated upper-case hex
 //! pairs, e.g. `AB:CD:EF:...`. This is the canonical PhoneBridge format.
 
-use ring::digest::{SHA256, digest};
+use ring::digest::{digest, SHA256};
 use thiserror::Error;
 
 /// Length of a SHA-256 digest.

@@ -26,7 +26,9 @@ pub struct ActionSink {
 
 impl ActionSink {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(None)) }
+        Self {
+            inner: Arc::new(Mutex::new(None)),
+        }
     }
 
     /// Called by the WS client once it has its outgoing

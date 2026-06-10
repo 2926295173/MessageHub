@@ -23,7 +23,11 @@ use message_center::app_state::AppState;
 use message_center::ws::{ws_console_upgrade, ws_upgrade};
 
 #[derive(Parser, Debug)]
-#[command(name = "message-center", version, about = "PhoneBridge message-center (the central broker for Android events)")]
+#[command(
+    name = "message-center",
+    version,
+    about = "PhoneBridge message-center (the central broker for Android events)"
+)]
 struct Args {
     /// Path to the config TOML. Defaults to ~/.config/phonebridge/config.toml.
     #[arg(long, env = "PHONEBRIDGE_CONFIG")]
@@ -83,13 +87,9 @@ async fn main() -> anyhow::Result<()> {
     // startup: we only need the token (load or generate), the
     // DB / cert / mDNS layers aren't required for these
     // subcommands.
-    if args.print_display_token
-        || args.rotate_display_token
-        || args.revoke_display_token
-    {
-        let auth =
-            message_center::display_auth::DisplayAuth::load_or_generate(&paths)
-                .context("loading display-endpoint token")?;
+    if args.print_display_token || args.rotate_display_token || args.revoke_display_token {
+        let auth = message_center::display_auth::DisplayAuth::load_or_generate(&paths)
+            .context("loading display-endpoint token")?;
         if args.rotate_display_token || args.revoke_display_token {
             auth.revoke().context("revoking display-endpoint token")?;
         }
@@ -103,10 +103,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let config_path = args
-        .config
-        .clone()
-        .unwrap_or_else(|| paths.config_file());
+    let config_path = args.config.clone().unwrap_or_else(|| paths.config_file());
     let mut config = Config::load_from_file(&config_path)
         .with_context(|| format!("loading config from {}", config_path.display()))?;
 
@@ -142,7 +139,10 @@ async fn main() -> anyhow::Result<()> {
     // Init logging (after config is loaded).
     logging::init(&config.logging).context("initializing logging")?;
 
-    info!(version = env!("CARGO_PKG_VERSION"), "message-center starting");
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "message-center starting"
+    );
     info!(config = %config_path.display(), "config loaded");
     info!(bind = %config.server.bind, "binding");
 
@@ -157,8 +157,9 @@ async fn main() -> anyhow::Result<()> {
     info!(db = %db_path.display(), "database ready");
 
     // Load or generate our long-term identity.
-    let id_module = message_center::identity::load_or_create(&paths, args.device_id, args.name.as_deref())
-        .context("loading message-center identity")?;
+    let id_module =
+        message_center::identity::load_or_create(&paths, args.device_id, args.name.as_deref())
+            .context("loading message-center identity")?;
     info!(device_id = %id_module.device_id, fingerprint = %id_module.fingerprint, name = %id_module.name, "message-center identity ready");
 
     // Optionally run a one-shot pairing against a peer and exit. Used by
@@ -249,9 +250,12 @@ async fn main() -> anyhow::Result<()> {
             .await
             .with_context(|| format!("binding to {addr}"))?;
         info!(%addr, "listening (plain HTTP)");
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .context("axum::serve")?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .context("axum::serve")?;
     }
 
     Ok(())

@@ -25,9 +25,7 @@ use phonebridge_proto::{
     CallHistory, CallIncoming, CallState, DeviceHello, DisplayEvent, Envelope, MessageType,
     NotificationDismissed, NotificationReceived, SmsListResult, SmsReceived, SmsSendResult, Unpair,
 };
-use phonebridge_storage::models::{
-    CallRow, DeviceRow, NotificationRow, SmsRow, SmsDirection,
-};
+use phonebridge_storage::models::{CallRow, DeviceRow, NotificationRow, SmsDirection, SmsRow};
 use phonebridge_storage::Db;
 
 use crate::console_bus::ConsoleBus;
@@ -50,7 +48,11 @@ impl CenterSink {
     /// (web UI vs desktop notification) so the same event is
     /// published to both — the bus layer fan-outs independently.
     pub fn new(db: Arc<Db>, console_bus: ConsoleBus, display_bus: DisplayBus) -> Self {
-        Self { db, console_bus, display_bus }
+        Self {
+            db,
+            console_bus,
+            display_bus,
+        }
     }
 
     async fn audit(&self, device_id: Option<Uuid>, event: &str, detail: Option<&str>) {
@@ -94,11 +96,10 @@ impl CenterSink {
         device_id: Uuid,
         payload: impl Serialize,
     ) {
-        let payload_value: Value = serde_json::to_value(payload)
-            .unwrap_or_else(|e| {
-                warn!(kind = %kind, error = %e, "display payload serialize failed");
-                Value::Null
-            });
+        let payload_value: Value = serde_json::to_value(payload).unwrap_or_else(|e| {
+            warn!(kind = %kind, error = %e, "display payload serialize failed");
+            Value::Null
+        });
         let event = DisplayEvent {
             kind: kind.as_str().to_string(),
             device_id,
@@ -149,7 +150,12 @@ impl WsSink for CenterSink {
         if let Ok(e) = Envelope::new(MessageType::NotificationReceived, device_id, env.clone()) {
             self.publish_console(&e);
         }
-        self.publish_display(MessageType::NotificationReceived, envelope_id, device_id, env);
+        self.publish_display(
+            MessageType::NotificationReceived,
+            envelope_id,
+            device_id,
+            env,
+        );
     }
 
     async fn on_notification_dismissed(
@@ -164,15 +170,15 @@ impl WsSink for CenterSink {
         if let Ok(e) = Envelope::new(MessageType::NotificationDismissed, device_id, env.clone()) {
             self.publish_console(&e);
         }
-        self.publish_display(MessageType::NotificationDismissed, envelope_id, device_id, env);
+        self.publish_display(
+            MessageType::NotificationDismissed,
+            envelope_id,
+            device_id,
+            env,
+        );
     }
 
-    async fn on_sms_received(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &SmsReceived,
-    ) {
+    async fn on_sms_received(&self, envelope_id: Uuid, device_id: Uuid, env: &SmsReceived) {
         let row = SmsRow {
             id: env.id.clone(),
             device_id,
@@ -191,12 +197,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::SmsReceived, envelope_id, device_id, env);
     }
 
-    async fn on_sms_send_result(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &SmsSendResult,
-    ) {
+    async fn on_sms_send_result(&self, envelope_id: Uuid, device_id: Uuid, env: &SmsSendResult) {
         info!(%device_id, request_id = %env.request_id, ok = env.ok, "sms.send.result");
         // Forward to display too — the desktop endpoint uses
         // this to show a "Sent to 138…" / "Failed: …" toast.
@@ -206,12 +207,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::SmsSendResult, envelope_id, device_id, env);
     }
 
-    async fn on_call_state(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &CallState,
-    ) {
+    async fn on_call_state(&self, envelope_id: Uuid, device_id: Uuid, env: &CallState) {
         let row = CallRow {
             id: 0,
             device_id,
@@ -238,12 +234,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::CallState, envelope_id, device_id, env);
     }
 
-    async fn on_call_incoming(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &CallIncoming,
-    ) {
+    async fn on_call_incoming(&self, envelope_id: Uuid, device_id: Uuid, env: &CallIncoming) {
         let row = CallRow {
             id: 0,
             device_id,
@@ -265,12 +256,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::CallIncoming, envelope_id, device_id, env);
     }
 
-    async fn on_call_history(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &CallHistory,
-    ) {
+    async fn on_call_history(&self, envelope_id: Uuid, device_id: Uuid, env: &CallHistory) {
         for entry in &env.entries {
             let row = CallRow {
                 id: 0,
@@ -299,12 +285,7 @@ impl WsSink for CenterSink {
         }
     }
 
-    async fn on_sms_list_result(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &SmsListResult,
-    ) {
+    async fn on_sms_list_result(&self, envelope_id: Uuid, device_id: Uuid, env: &SmsListResult) {
         for m in &env.messages {
             let row = SmsRow {
                 id: m.id.clone(),
@@ -322,12 +303,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::SmsListResult, envelope_id, device_id, env);
     }
 
-    async fn on_hello(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &DeviceHello,
-    ) {
+    async fn on_hello(&self, envelope_id: Uuid, device_id: Uuid, env: &DeviceHello) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -352,12 +328,7 @@ impl WsSink for CenterSink {
         self.publish_display(MessageType::DeviceHello, envelope_id, device_id, env);
     }
 
-    async fn on_unpair(
-        &self,
-        _envelope_id: Uuid,
-        device_id: Uuid,
-        env: &Unpair,
-    ) {
+    async fn on_unpair(&self, _envelope_id: Uuid, device_id: Uuid, env: &Unpair) {
         self.audit(
             Some(device_id),
             "device.unpair",

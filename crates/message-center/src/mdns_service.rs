@@ -58,22 +58,11 @@ pub fn start(state: Arc<AppState>) -> Result<MdnsService, mdns::MdnsError> {
         .unwrap_or(8443);
     let fp = state.our_fingerprint.read().clone();
     let name = state.our_name.read().clone();
-    let txt = mdns::daemon_txt(
-        &state.our_device_id.to_string(),
-        &name,
-        port,
-        &fp,
-    );
+    let txt = mdns::daemon_txt(&state.our_device_id.to_string(), &name, port, &fp);
     // mdns-sd requires the service type to end with `._tcp.local.` or
     // `._udp.local.`. We append `.local.` if missing.
     let service_type = normalize_service_type(&state.config.discovery.service_type);
-    let advertiser = mdns::advertise(
-        &service_type,
-        &instance_name,
-        &host_name,
-        port,
-        txt,
-    )?;
+    let advertiser = mdns::advertise(&service_type, &instance_name, &host_name, port, txt)?;
 
     let (mut rx, browser) = mdns::browse(&service_type)?;
     let (discovered_tx, mut discovered_rx) = mpsc::channel::<MdnsDeviceEntry>(64);
@@ -107,7 +96,8 @@ pub fn start(state: Arc<AppState>) -> Result<MdnsService, mdns::MdnsError> {
     // Spawn a task that updates the in-memory `state` with discovered devices.
     let state_for_drain = state.clone();
     tokio::spawn(async move {
-        let map: Arc<Mutex<HashMap<String, MdnsDeviceEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+        let map: Arc<Mutex<HashMap<String, MdnsDeviceEntry>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         while let Some(entry) = discovered_rx.recv().await {
             map.lock().insert(entry.device_id.clone(), entry.clone());
             // Persist any newly discovered device in the DB (unpaired).

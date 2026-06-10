@@ -269,7 +269,10 @@ mod tests {
         let u = cfg.ws_url().unwrap();
         assert_eq!(u.scheme(), "ws");
         assert_eq!(u.path(), "/ws/display");
-        assert_eq!(u.query_pairs().find(|(k, _)| k == "token").unwrap().1, "abc");
+        assert_eq!(
+            u.query_pairs().find(|(k, _)| k == "token").unwrap().1,
+            "abc"
+        );
     }
 
     #[test]
@@ -286,7 +289,10 @@ mod tests {
         let u = cfg.i18n_url("zh").unwrap();
         assert_eq!(u.scheme(), "http");
         assert_eq!(u.path(), "/api/v1/i18n");
-        assert_eq!(u.query_pairs().find(|(k, _)| k == "locale").unwrap().1, "zh");
+        assert_eq!(
+            u.query_pairs().find(|(k, _)| k == "locale").unwrap().1,
+            "zh"
+        );
     }
 
     #[test]

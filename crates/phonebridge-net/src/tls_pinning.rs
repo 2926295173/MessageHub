@@ -45,7 +45,9 @@ pub enum PinError {
 /// Compute the SHA-256 fingerprint of a DER cert and return it as
 /// 32 colon-separated upper-case hex pairs.
 pub fn cert_fingerprint(cert_der: &[u8]) -> Result<String, PinError> {
-    Ok(phonebridge_crypto::fingerprint::cert_fingerprint_der(cert_der))
+    Ok(phonebridge_crypto::fingerprint::cert_fingerprint_der(
+        cert_der,
+    ))
 }
 
 /// Verify a client cert against the pinned fingerprint for `device_id`.
@@ -63,7 +65,10 @@ pub fn verify_pin(
     match expected {
         None => Err(PinError::UnknownDevice),
         Some(pinned) if pinned == got => Ok(()),
-        Some(pinned) => Err(PinError::Mismatch { expected: pinned, got }),
+        Some(pinned) => Err(PinError::Mismatch {
+            expected: pinned,
+            got,
+        }),
     }
 }
 

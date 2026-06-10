@@ -16,5 +16,5 @@ pub mod config;
 pub mod logging;
 pub mod paths;
 
-pub use config::{Config, LoggingConfig, ServerConfig, DiscoveryConfig, StorageConfig};
-pub use paths::{AppPaths, expand_tilde};
+pub use config::{Config, DiscoveryConfig, LoggingConfig, ServerConfig, StorageConfig};
+pub use paths::{expand_tilde, AppPaths};

@@ -24,8 +24,8 @@ use uuid::Uuid;
 use phonebridge_net::ws_handler::{self, WsContext, WsSink};
 
 use crate::app_state::AppState;
-use crate::console_bus::ConsoleBus;
 use crate::center_sink::CenterSink;
+use crate::console_bus::ConsoleBus;
 
 /// `GET /ws` — upgrade to a WebSocket connection from an Android client.
 pub async fn ws_upgrade(
@@ -106,10 +106,7 @@ async fn run_console_axum(socket: WebSocket, peer: SocketAddr, bus: ConsoleBus) 
         "timestamp": chrono::Utc::now().timestamp_millis(),
         "summary": {"server": "message-center", "version": env!("CARGO_PKG_VERSION")}
     });
-    if let Err(e) = sink
-        .send(Message::Text(hello.to_string()))
-        .await
-    {
+    if let Err(e) = sink.send(Message::Text(hello.to_string())).await {
         warn!(%peer, "console ws send hello failed: {e}");
         return;
     }

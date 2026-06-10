@@ -197,7 +197,9 @@ impl Envelope {
 
     /// Construct the timestamp as a `DateTime<Utc>`.
     pub fn timestamp(&self) -> DateTime<Utc> {
-        Utc.timestamp_millis_opt(self.ts).single().unwrap_or_else(Utc::now)
+        Utc.timestamp_millis_opt(self.ts)
+            .single()
+            .unwrap_or_else(Utc::now)
     }
 
     /// Decode `payload` into a concrete type. The caller is responsible for

@@ -11,14 +11,14 @@
 #![allow(missing_docs)]
 
 pub mod app_state;
+pub mod center_sink;
 pub mod cert_loader;
 pub mod console_bus;
-pub mod center_sink;
 pub mod display_auth;
 pub mod display_bus;
 pub mod display_ws;
-pub mod identity;
 pub mod i18n;
+pub mod identity;
 pub mod mdns_service;
 pub mod noise_filter;
 pub mod openapi;

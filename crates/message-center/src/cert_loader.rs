@@ -36,8 +36,7 @@ pub fn load_or_generate(cert_pem: &Path, key_pem: &Path) -> Result<Identity> {
     }
 
     info!("no existing TLS identity found; generating a new one (valid 10 years)");
-    let id = cert::generate_self_signed("message-center", 3650)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let id = cert::generate_self_signed("message-center", 3650).map_err(|e| anyhow::anyhow!(e))?;
     if let Some(parent) = cert_pem.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -60,24 +59,24 @@ pub fn load_or_generate(cert_pem: &Path, key_pem: &Path) -> Result<Identity> {
 /// Extract the first DER CERTIFICATE blob from a PEM file.
 fn pem_to_der(pem_str: &str) -> Result<Vec<u8>> {
     use base64::Engine;
-        let mut in_cert = false;
-        let mut b64 = String::new();
-        for line in pem_str.lines() {
-            let line = line.trim();
-            if line.contains("BEGIN CERTIFICATE") {
-                in_cert = true;
-                continue;
-            }
-            if line.contains("END CERTIFICATE") {
-                break;
-            }
-            if in_cert {
-                b64.push_str(line);
-            }
+    let mut in_cert = false;
+    let mut b64 = String::new();
+    for line in pem_str.lines() {
+        let line = line.trim();
+        if line.contains("BEGIN CERTIFICATE") {
+            in_cert = true;
+            continue;
         }
-        if b64.is_empty() {
-            anyhow::bail!("no CERTIFICATE block found");
+        if line.contains("END CERTIFICATE") {
+            break;
         }
+        if in_cert {
+            b64.push_str(line);
+        }
+    }
+    if b64.is_empty() {
+        anyhow::bail!("no CERTIFICATE block found");
+    }
     let der = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .context("base64 decoding cert body")?;

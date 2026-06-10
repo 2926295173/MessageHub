@@ -97,8 +97,7 @@ pub fn load_or_create(
     }
 
     // Generate fresh.
-    let id = cert::generate_self_signed("message-center", 3650)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let id = cert::generate_self_signed("message-center", 3650).map_err(|e| anyhow::anyhow!(e))?;
     std::fs::write(&cert_path, &id.cert_pem)?;
     std::fs::write(&key_path, &id.key_pem)?;
     #[cfg(unix)]

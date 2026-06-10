@@ -117,7 +117,10 @@ pub fn advertise(
     daemon
         .register(info)
         .map_err(|e| MdnsError::Op(e.to_string()))?;
-    info!(service_type, instance_name, port, "mDNS: registered service");
+    info!(
+        service_type,
+        instance_name, port, "mDNS: registered service"
+    );
     Ok(MdnsHandle {
         daemon,
         service_type: service_type.to_string(),
@@ -151,8 +154,12 @@ pub fn browse(service_type: &str) -> Result<(mpsc::Receiver<MdnsEvent>, BrowseGu
                             break;
                         }
                     }
-                    ServiceEvent::SearchStarted(_) => debug!(service_type = %st, "mDNS search started"),
-                    ServiceEvent::SearchStopped(_) => debug!(service_type = %st, "mDNS search stopped"),
+                    ServiceEvent::SearchStarted(_) => {
+                        debug!(service_type = %st, "mDNS search started")
+                    }
+                    ServiceEvent::SearchStopped(_) => {
+                        debug!(service_type = %st, "mDNS search stopped")
+                    }
                     _ => {}
                 }
             }
@@ -274,7 +281,12 @@ pub fn txt_props_to_hashmap(pairs: &HashMap<String, String>) -> HashMap<String, 
 }
 
 /// Helper: build the TXT properties for the daemon's own advertisement.
-pub fn daemon_txt(device_id: &str, name: &str, port: u16, fingerprint: &str) -> HashMap<String, String> {
+pub fn daemon_txt(
+    device_id: &str,
+    name: &str,
+    port: u16,
+    fingerprint: &str,
+) -> HashMap<String, String> {
     let mut h = HashMap::new();
     h.insert(TXT_KEY_DEVICE_ID.to_string(), device_id.to_string());
     h.insert(TXT_KEY_NAME.to_string(), name.to_string());
@@ -311,7 +323,13 @@ mod tests {
         // Use a randomized instance name to avoid clashes with other tests.
         let inst = format!("pb-test-{}", uuid::Uuid::new_v4().simple());
         let txt = daemon_txt("00000000-0000-0000-0000-000000000001", "test", 18443, "");
-        let handle = match advertise("_phonebridge._tcp.local.", &inst, "localhost.test", 18443, txt) {
+        let handle = match advertise(
+            "_phonebridge._tcp.local.",
+            &inst,
+            "localhost.test",
+            18443,
+            txt,
+        ) {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("skipping mdns test: {e}");

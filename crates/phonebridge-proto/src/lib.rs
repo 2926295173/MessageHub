@@ -23,10 +23,9 @@ pub mod types;
 pub use envelope::{Envelope, EnvelopeError, MessageType};
 pub use payload::{
     ActionResultEvent, CallAnswerRequest, CallDialRequest, CallEndRequest, CallHistory,
-    CallHistoryEntry, CallIncoming, CallState, DeviceHello, DeviceHeartbeat,
-    DeviceInfoUpdate, DisplayAction, DisplayEvent, NotificationDismissed,
-    NotificationReceived, PairAccept, PairChallenge, PairComplete, PairConfirm,
-    PairReject, PairRequest, SmsListRequest, SmsListResult, SmsReceived, SmsSendRequest,
-    SmsSendResult, Unpair,
+    CallHistoryEntry, CallIncoming, CallState, DeviceHeartbeat, DeviceHello, DeviceInfoUpdate,
+    DisplayAction, DisplayEvent, NotificationDismissed, NotificationReceived, PairAccept,
+    PairChallenge, PairComplete, PairConfirm, PairReject, PairRequest, SmsListRequest,
+    SmsListResult, SmsReceived, SmsSendRequest, SmsSendResult, Unpair,
 };
 pub use types::{CallDirection, CallStateKind, DeviceType, NetworkType, SimSlot};

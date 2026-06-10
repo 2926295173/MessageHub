@@ -35,7 +35,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use parking_lot::RwLock;
 use ring::rand::{SecureRandom, SystemRandom};
 use tracing::{info, warn};
@@ -91,9 +91,8 @@ impl DisplayAuth {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let s = generate_token_string();
-                write_token_file(&path, &s).with_context(|| {
-                    format!("writing new display token to {}", path.display())
-                })?;
+                write_token_file(&path, &s)
+                    .with_context(|| format!("writing new display token to {}", path.display()))?;
                 info!(
                     file = %path.display(),
                     "generated and persisted new display-endpoint token"
@@ -150,9 +149,8 @@ impl DisplayAuth {
     /// cannot leave the file half-written and break the message-center.
     pub fn rotate(&self) -> Result<String> {
         let new_token = generate_token_string();
-        write_token_file(&self.path, &new_token).with_context(|| {
-            format!("rotating display token at {}", self.path.display())
-        })?;
+        write_token_file(&self.path, &new_token)
+            .with_context(|| format!("rotating display token at {}", self.path.display()))?;
         *self.current.write() = new_token.clone();
         info!(file = %self.path.display(), "rotated display token");
         Ok(new_token)
@@ -222,12 +220,8 @@ fn get_local_addrs() -> Result<Vec<IpAddr>> {
         }
         let Some(sa) = iface.address else { continue };
         let ip = match sa.family() {
-            Some(AddressFamily::Inet) => sa
-                .as_sockaddr_in()
-                .map(|a| IpAddr::V4(a.ip())),
-            Some(AddressFamily::Inet6) => sa
-                .as_sockaddr_in6()
-                .map(|a| IpAddr::V6(a.ip())),
+            Some(AddressFamily::Inet) => sa.as_sockaddr_in().map(|a| IpAddr::V4(a.ip())),
+            Some(AddressFamily::Inet6) => sa.as_sockaddr_in6().map(|a| IpAddr::V6(a.ip())),
             _ => None,
         };
         if let Some(ip) = ip {
@@ -352,7 +346,11 @@ pub fn print_current_token(state: &AppState) {
     let path = state.display_auth.path();
     println!("# Display-endpoint token (kept on the message-center)");
     println!("# File: {}", path.display());
-    println!("# Length: {} hex chars ({} bits)", token.len(), token.len() * 4);
+    println!(
+        "# Length: {} hex chars ({} bits)",
+        token.len(),
+        token.len() * 4
+    );
     println!();
     println!("{token}");
     warn!(

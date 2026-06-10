@@ -27,11 +27,11 @@
 //! every component re-renders against the new strings.
 
 use axum::{
-    Router,
     extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -466,10 +466,7 @@ struct I18nQuery {
     locale: Option<String>,
 }
 
-async fn get_i18n(
-    State(_state): State<AppState>,
-    Query(q): Query<I18nQuery>,
-) -> impl IntoResponse {
+async fn get_i18n(State(_state): State<AppState>, Query(q): Query<I18nQuery>) -> impl IntoResponse {
     let default = SystemLocale::detect().0.to_string();
     // No `?locale` → fall through to the message-center's system default.
     // The frontend hits this path on a fresh visit when the user

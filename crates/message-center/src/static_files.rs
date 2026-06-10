@@ -12,13 +12,13 @@
 //! serves it under the `/console/` path. Other paths fall back to
 //! `frontend/out/index.html` for client-side routing (App Router).
 
-use axum::Router;
 use axum::body::Body;
 use axum::extract::{Path, Request, State};
-use axum::http::{Response, StatusCode, Uri, header};
+use axum::http::{header, Response, StatusCode, Uri};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::get;
-use include_dir::{Dir, include_dir};
+use axum::Router;
+use include_dir::{include_dir, Dir};
 use mime_guess::from_path;
 use tracing::warn;
 
@@ -62,7 +62,11 @@ async fn serve_console_file(
     _req: Request,
 ) -> Response<Body> {
     let requested = path.trim_start_matches('/');
-    let requested = if requested.is_empty() { "index.html" } else { requested };
+    let requested = if requested.is_empty() {
+        "index.html"
+    } else {
+        requested
+    };
 
     // Try direct file first.
     if let Some(resp) = try_file(requested) {
@@ -81,10 +85,7 @@ async fn serve_console_file(
     // can pick up the URL. This is only correct for /console/* paths that
     // look like client routes (no extension). For paths with extensions
     // (e.g. .js, .css), we 404.
-    if std::path::Path::new(requested)
-        .extension()
-        .is_some()
-    {
+    if std::path::Path::new(requested).extension().is_some() {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
 
@@ -102,7 +103,9 @@ fn try_file(rel: &str) -> Option<Response<Body>> {
     let mut resp = (StatusCode::OK, body).into_response();
     resp.headers_mut().insert(
         header::CONTENT_TYPE,
-        mime.essence_str().parse().unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
+        mime.essence_str()
+            .parse()
+            .unwrap_or_else(|_| "application/octet-stream".parse().unwrap()),
     );
     Some(resp)
 }
@@ -145,8 +148,7 @@ mod tests {
             data_dir: std::env::temp_dir(),
             log_dir: std::env::temp_dir(),
         };
-        let display_auth = DisplayAuth::load_or_generate(&auth_paths)
-            .unwrap();
+        let display_auth = DisplayAuth::load_or_generate(&auth_paths).unwrap();
         AppState::new(
             std::sync::Arc::new(phonebridge_core::Config::default()),
             std::sync::Arc::new(db),
@@ -173,11 +175,22 @@ mod tests {
     async fn console_index_serves_html() {
         let app = router().with_state(make_state().await);
         let resp = app
-            .oneshot(Request::builder().uri("/console/").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/console/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), S::OK);
-        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         assert!(ct.starts_with("text/html"), "got: {ct}");
     }
 
@@ -194,7 +207,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), S::OK);
-        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
         assert!(ct.starts_with("text/html"));
     }
 }

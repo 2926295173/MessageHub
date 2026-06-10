@@ -90,7 +90,9 @@ pub async fn run(peer: SocketAddr, identity: CenterIdentity, _config: Arc<Config
         let env: Envelope = serde_json::from_str(&frame)?;
         match env.message_type {
             MessageType::DevicePairRequest => {
-                info!("pair_cli: received device.pair.request (message-center is initiator); exiting");
+                info!(
+                    "pair_cli: received device.pair.request (message-center is initiator); exiting"
+                );
                 got_pair_request = true;
                 break;
             }

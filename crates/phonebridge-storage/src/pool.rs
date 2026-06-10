@@ -11,7 +11,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
-use sqlx::{SqlitePool, migrate::Migrator};
+use sqlx::{migrate::Migrator, SqlitePool};
 
 use crate::models::*;
 
@@ -231,10 +231,7 @@ impl Db {
     }
 
     /// Get a pairing row for a device, if any.
-    pub async fn get_pairing(
-        &self,
-        device_id: uuid::Uuid,
-    ) -> Result<Option<PairingRow>, DbError> {
+    pub async fn get_pairing(&self, device_id: uuid::Uuid) -> Result<Option<PairingRow>, DbError> {
         let row = sqlx::query_as::<_, PairingRow>(
             "SELECT id, device_id, cert_pem, cert_fingerprint, paired_at FROM pairings WHERE device_id = ?1",
         )
@@ -329,7 +326,9 @@ impl Db {
             (true, Some(d), Some(p)) => q.bind(d).bind(p).bind(limit).fetch_all(&self.pool).await?,
             (true, Some(d), None) => q.bind(d).bind(limit).fetch_all(&self.pool).await?,
             (true, None, Some(p)) => q.bind(p).bind(limit).fetch_all(&self.pool).await?,
-            (false, Some(d), Some(p)) => q.bind(d).bind(p).bind(limit).fetch_all(&self.pool).await?,
+            (false, Some(d), Some(p)) => {
+                q.bind(d).bind(p).bind(limit).fetch_all(&self.pool).await?
+            }
             (false, Some(d), None) => q.bind(d).bind(limit).fetch_all(&self.pool).await?,
             (false, None, Some(p)) => q.bind(p).bind(limit).fetch_all(&self.pool).await?,
             (true, None, None) => q.bind(limit).fetch_all(&self.pool).await?,
@@ -704,7 +703,9 @@ mod tests {
         assert_eq!(list.len(), 1);
 
         // Audit log round-trip.
-        db.insert_audit_log(1717000099, Some(dev_id), "pair.success", Some("{}")).await.unwrap();
+        db.insert_audit_log(1717000099, Some(dev_id), "pair.success", Some("{}"))
+            .await
+            .unwrap();
         let log = db.list_audit_log(10).await.unwrap();
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].event, "pair.success");

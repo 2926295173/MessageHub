@@ -46,7 +46,9 @@ pub struct Subscriber {
 
 impl Subscriber {
     /// Receive the next event, awaiting if none is queued.
-    pub async fn recv(&mut self) -> Result<Arc<BusEvent>, tokio::sync::broadcast::error::RecvError> {
+    pub async fn recv(
+        &mut self,
+    ) -> Result<Arc<BusEvent>, tokio::sync::broadcast::error::RecvError> {
         self.rx.recv().await
     }
 }
@@ -83,7 +85,9 @@ impl Bus {
 
     /// Subscribe to all events.
     pub fn subscribe(&self) -> Subscriber {
-        Subscriber { rx: self.tx.subscribe() }
+        Subscriber {
+            rx: self.tx.subscribe(),
+        }
     }
 
     /// Publish an event to all subscribers. Returns the number of receivers
@@ -156,7 +160,9 @@ mod tests {
 
     #[async_trait]
     impl EventHandler for CountingHandler {
-        fn name(&self) -> &str { &self.name }
+        fn name(&self) -> &str {
+            &self.name
+        }
         async fn handle(&self, _: &BusEvent) -> Result<(), BusError> {
             *self.count.lock().unwrap() += 1;
             Ok(())

@@ -32,9 +32,9 @@ use uuid::Uuid;
 
 use phonebridge_bus::{Bus, BusEvent};
 use phonebridge_proto::{
-    CallHistory, CallIncoming,
-    CallState, DeviceHello, DeviceType, Envelope, MessageType, NotificationDismissed,
-    NotificationReceived, PairConfirm, SmsListResult, SmsReceived, SmsSendResult, Unpair,
+    CallHistory, CallIncoming, CallState, DeviceHello, DeviceType, Envelope, MessageType,
+    NotificationDismissed, NotificationReceived, PairConfirm, SmsListResult, SmsReceived,
+    SmsSendResult, Unpair,
 };
 
 use crate::pairing::{Initiator, PairingError, PairingOutcome, Responder};
@@ -234,9 +234,9 @@ impl PairingMap {
 fn clone_session(s: &DeviceSession) -> DeviceSession {
     match s {
         DeviceSession::Paired(p) => DeviceSession::Paired(p.clone()),
-        DeviceSession::Unpaired(_) => {
-            DeviceSession::Unpaired(UnpairedSession::Responder(Responder::start(Uuid::nil()).expect("dummy")))
-        }
+        DeviceSession::Unpaired(_) => DeviceSession::Unpaired(UnpairedSession::Responder(
+            Responder::start(Uuid::nil()).expect("dummy"),
+        )),
     }
 }
 
@@ -274,12 +274,7 @@ impl ConnectionSink {
 #[async_trait]
 pub trait WsSink: Send + Sync + 'static {
     /// Persist a `notification.received` envelope.
-    async fn on_notification(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &NotificationReceived,
-    );
+    async fn on_notification(&self, envelope_id: Uuid, device_id: Uuid, env: &NotificationReceived);
     /// Persist a `notification.dismissed` envelope.
     async fn on_notification_dismissed(
         &self,
@@ -288,61 +283,21 @@ pub trait WsSink: Send + Sync + 'static {
         env: &NotificationDismissed,
     );
     /// Persist a `sms.received` envelope.
-    async fn on_sms_received(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &SmsReceived,
-    );
+    async fn on_sms_received(&self, envelope_id: Uuid, device_id: Uuid, env: &SmsReceived);
     /// Persist a `sms.send.result` envelope and resolve any pending send.
-    async fn on_sms_send_result(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &SmsSendResult,
-    );
+    async fn on_sms_send_result(&self, envelope_id: Uuid, device_id: Uuid, env: &SmsSendResult);
     /// Persist a `call.state` envelope (state transition).
-    async fn on_call_state(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &CallState,
-    );
+    async fn on_call_state(&self, envelope_id: Uuid, device_id: Uuid, env: &CallState);
     /// Persist a `call.incoming` envelope.
-    async fn on_call_incoming(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &CallIncoming,
-    );
+    async fn on_call_incoming(&self, envelope_id: Uuid, device_id: Uuid, env: &CallIncoming);
     /// Persist a `call.history` envelope.
-    async fn on_call_history(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &CallHistory,
-    );
+    async fn on_call_history(&self, envelope_id: Uuid, device_id: Uuid, env: &CallHistory);
     /// Persist an `sms.list.result` envelope.
-    async fn on_sms_list_result(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &SmsListResult,
-    );
+    async fn on_sms_list_result(&self, envelope_id: Uuid, device_id: Uuid, env: &SmsListResult);
     /// Persist a `device.hello` envelope (update device row + last_seen).
-    async fn on_hello(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &DeviceHello,
-    );
+    async fn on_hello(&self, envelope_id: Uuid, device_id: Uuid, env: &DeviceHello);
     /// Persist a `device.unpair` envelope.
-    async fn on_unpair(
-        &self,
-        envelope_id: Uuid,
-        device_id: Uuid,
-        env: &Unpair,
-    );
+    async fn on_unpair(&self, envelope_id: Uuid, device_id: Uuid, env: &Unpair);
     /// Called on connection close. Audit log + cleanup.
     async fn on_disconnect(&self, device_id: Uuid);
 }
@@ -403,7 +358,11 @@ impl WsContext {
     /// empty/None — production callers should use
     /// [`WsContext::with_identity`] so the resulting `device.hello`
     /// carries the right name and pubkey.
-    pub fn new(our_device_id: Uuid, sink: Arc<dyn WsSink + Send + Sync>, registry: DeviceRegistry) -> Self {
+    pub fn new(
+        our_device_id: Uuid,
+        sink: Arc<dyn WsSink + Send + Sync>,
+        registry: DeviceRegistry,
+    ) -> Self {
         Self {
             bus: Bus::new(),
             pairing: PairingMap::new(),
@@ -543,9 +502,7 @@ where
         match env.message_type {
             MessageType::DeviceHello => {
                 // Persist device row.
-                let hello = env
-                    .parse_payload::<DeviceHello>()
-                    .ok();
+                let hello = env.parse_payload::<DeviceHello>().ok();
                 if let Some(ref h) = hello {
                     ctx.sink.on_hello(env.id, env.device_id, h).await;
                 }
@@ -560,7 +517,9 @@ where
             }
             MessageType::NotificationDismissed => {
                 if let Ok(n) = env.parse_payload::<NotificationDismissed>() {
-                    ctx.sink.on_notification_dismissed(env.id, env.device_id, &n).await;
+                    ctx.sink
+                        .on_notification_dismissed(env.id, env.device_id, &n)
+                        .await;
                 }
             }
             MessageType::SmsReceived => {
@@ -693,7 +652,9 @@ pub async fn handle_axum_connection(
             }
             MessageType::NotificationDismissed => {
                 if let Ok(n) = env.parse_payload::<NotificationDismissed>() {
-                    ctx.sink.on_notification_dismissed(env.id, env.device_id, &n).await;
+                    ctx.sink
+                        .on_notification_dismissed(env.id, env.device_id, &n)
+                        .await;
                 }
             }
             MessageType::SmsReceived => {
@@ -768,8 +729,10 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
                         return None;
                     }
                 };
-                ctx.pairing
-                    .insert(peer_id, DeviceSession::Unpaired(UnpairedSession::Responder(r)));
+                ctx.pairing.insert(
+                    peer_id,
+                    DeviceSession::Unpaired(UnpairedSession::Responder(r)),
+                );
                 info!(%peer_id, "ws: device.hello received, awaiting pair.request");
             }
             None
@@ -791,9 +754,11 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
             // with `device.pair.complete`, the existing dispatcher
             // handles the cert exchange.
             let peer_id = env.device_id;
-            let req: phonebridge_proto::PairRequest = env
-                .parse_payload()
-                .unwrap_or(phonebridge_proto::PairRequest { ephemeral_pubkey: String::new() });
+            let req: phonebridge_proto::PairRequest =
+                env.parse_payload()
+                    .unwrap_or(phonebridge_proto::PairRequest {
+                        ephemeral_pubkey: String::new(),
+                    });
             ctx.pending_incoming.insert(PendingIncoming {
                 device_id: peer_id,
                 name: format!("device-{}", &peer_id.to_string()[..8]),
@@ -918,8 +883,7 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
             }
             None
         }
-        MessageType::DevicePairAccept
-        | MessageType::DevicePairReject => None,
+        MessageType::DevicePairAccept | MessageType::DevicePairReject => None,
         _ => {
             debug!(message_type = %env.message_type, "ws: message handled in M3 dispatcher");
             None
@@ -930,10 +894,10 @@ async fn dispatch(env: &Envelope, ctx: &WsContext) -> Option<Envelope> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::SinkExt;
     use phonebridge_proto::{DeviceHello, DeviceType};
     use tokio::net::TcpListener;
     use tokio_tungstenite::tungstenite::Message;
-    use futures::SinkExt;
 
     /// Open a TCP listener and return its address. The caller drives the
     /// accept + connect.
@@ -1026,11 +990,19 @@ mod tests {
         .unwrap();
         ws.send(Message::Text(hello.to_json())).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert_eq!(registry.connected_count(), 1, "device should be registered after hello");
+        assert_eq!(
+            registry.connected_count(),
+            1,
+            "device should be registered after hello"
+        );
         assert_eq!(registry.connected_ids(), vec![device_id]);
 
         let _ = ws.send(Message::Close(None)).await;
         let _ = task.await;
-        assert_eq!(registry.connected_count(), 0, "device should be unregistered on close");
+        assert_eq!(
+            registry.connected_count(),
+            0,
+            "device should be unregistered on close"
+        );
     }
 }

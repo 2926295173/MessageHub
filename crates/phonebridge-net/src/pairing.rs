@@ -115,7 +115,11 @@ impl Initiator {
         let identity = cert::generate_self_signed("phonebridge-test-peer", 3650)?;
         let ephemeral = EphemeralKeyPair::generate()?;
         Ok(Self {
-            core: InitiatorCore { identity, peer_device_id, peer_name: peer_name.into() },
+            core: InitiatorCore {
+                identity,
+                peer_device_id,
+                peer_name: peer_name.into(),
+            },
             ephemeral: Some(ephemeral),
             peer_ephemeral_pub: None,
             challenge_code: None,
@@ -123,10 +127,7 @@ impl Initiator {
     }
 
     /// Build the `device.pair.request` envelope.
-    pub fn build_request_envelope(
-        &self,
-        our_device_id: Uuid,
-    ) -> Result<Envelope, PairingError> {
+    pub fn build_request_envelope(&self, our_device_id: Uuid) -> Result<Envelope, PairingError> {
         let pub_b64 = self
             .ephemeral
             .as_ref()
@@ -139,7 +140,9 @@ impl Initiator {
         Ok(Envelope::new(
             MessageType::DevicePairRequest,
             our_device_id,
-            PairRequest { ephemeral_pubkey: pub_b64 },
+            PairRequest {
+                ephemeral_pubkey: pub_b64,
+            },
         )?)
     }
 
@@ -162,7 +165,10 @@ impl Initiator {
         }
         let now = Utc::now().timestamp_millis();
         if now > challenge.expires_at {
-            return Err(PairingError::Expired { now, expires: challenge.expires_at });
+            return Err(PairingError::Expired {
+                now,
+                expires: challenge.expires_at,
+            });
         }
         // Parse + store the peer's ephemeral pub for the eventual `agree`.
         let peer_pub = PublicKey::from_base64(&challenge.ephemeral_pubkey)?;
@@ -170,8 +176,10 @@ impl Initiator {
         self.challenge_code = Some(challenge.code.clone());
         // Touch our_device_id to silence unused if we don't use it.
         let _ = our_device_id;
-        Ok(chrono::DateTime::<chrono::Utc>::from_timestamp_millis(challenge.expires_at)
-            .unwrap_or_else(Utc::now))
+        Ok(
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(challenge.expires_at)
+                .unwrap_or_else(Utc::now),
+        )
     }
 
     /// Build the `device.pair.accept` envelope.
@@ -198,7 +206,9 @@ impl Initiator {
         Ok(Envelope::new(
             MessageType::DevicePairReject,
             our_device_id,
-            PairReject { reason: Some(reason.to_string()) },
+            PairReject {
+                reason: Some(reason.to_string()),
+            },
         )?)
     }
 
@@ -275,7 +285,10 @@ impl Responder {
     pub fn start(peer_device_id: Uuid) -> Result<Self, PairingError> {
         let identity = cert::generate_self_signed("phonebridge-android", 3650)?;
         Ok(Self {
-            core: ResponderCore { identity, peer_device_id },
+            core: ResponderCore {
+                identity,
+                peer_device_id,
+            },
             ephemeral_pub: None,
             code: None,
             expires_at: None,
@@ -555,14 +568,20 @@ mod tests {
         let initiator_complete = initiator.build_complete_envelope(Uuid::new_v4()).unwrap();
 
         // User accepts on responder; build confirm + responder's own complete
-        let _confirm = responder.build_confirm_envelope(Uuid::new_v4(), true).unwrap();
+        let _confirm = responder
+            .build_confirm_envelope(Uuid::new_v4(), true)
+            .unwrap();
         let responder_complete = responder.build_complete_envelope(Uuid::new_v4()).unwrap();
 
         // Cross-exchange
         let responder_outcome = responder.on_complete(&initiator_complete).unwrap();
         let initiator_outcome = initiator.on_complete(&responder_complete).unwrap();
-        assert!(responder_outcome.peer_cert_pem.contains("BEGIN CERTIFICATE"));
-        assert!(initiator_outcome.peer_cert_pem.contains("BEGIN CERTIFICATE"));
+        assert!(responder_outcome
+            .peer_cert_pem
+            .contains("BEGIN CERTIFICATE"));
+        assert!(initiator_outcome
+            .peer_cert_pem
+            .contains("BEGIN CERTIFICATE"));
     }
 
     #[test]
@@ -578,7 +597,9 @@ mod tests {
         )
         .unwrap();
         responder.on_request(&req_env).unwrap();
-        responder.build_confirm_envelope(Uuid::new_v4(), false).unwrap();
+        responder
+            .build_confirm_envelope(Uuid::new_v4(), false)
+            .unwrap();
         // Build a fake complete and try to accept it.
         let fake_complete = Envelope::new(
             MessageType::DevicePairComplete,

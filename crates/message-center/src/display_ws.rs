@@ -54,13 +54,13 @@ use serde_json::json;
 use tracing::{info, warn};
 
 use phonebridge_proto::{
-    ActionResultEvent, CallAnswerRequest, CallEndRequest, CallDialRequest, DeviceHello,
+    ActionResultEvent, CallAnswerRequest, CallDialRequest, CallEndRequest, DeviceHello,
     DisplayAction, DisplayEvent, MessageType, NotificationDismissed, SmsSendRequest,
 };
 
 use crate::app_state::AppState;
 use crate::display_auth::is_same_host;
-use crate::display_bus::{DisplayBus, build_display_event};
+use crate::display_bus::{build_display_event, DisplayBus};
 
 /// `GET /ws/display?token=…` — upgrade to a full-duplex
 /// display connection.
@@ -124,7 +124,11 @@ async fn handle_display_socket(state: AppState, socket: WebSocket) -> anyhow::Re
         while let Some(event) = rx.recv().await {
             match serde_json::to_string(&*event) {
                 Ok(line) => {
-                    if sender.send(Message::Text(format!("{line}\n"))).await.is_err() {
+                    if sender
+                        .send(Message::Text(format!("{line}\n")))
+                        .await
+                        .is_err()
+                    {
                         // Peer gone; the recv side will see the
                         // close and the bus_bridge task will be
                         // aborted shortly.
@@ -258,16 +262,26 @@ async fn do_sms_reply(state: &AppState, action: &DisplayAction) {
     let to = match action.to.as_deref() {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => {
-            publish_action_result(state, action, false, Some("bad_request"),
-                Some("sms.reply requires `to`".into()));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("bad_request"),
+                Some("sms.reply requires `to`".into()),
+            );
             return;
         }
     };
     let body = match action.body.as_deref() {
         Some(s) if !s.is_empty() => s.to_string(),
         _ => {
-            publish_action_result(state, action, false, Some("bad_request"),
-                Some("sms.reply requires `body`".into()));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("bad_request"),
+                Some("sms.reply requires `body`".into()),
+            );
             return;
         }
     };
@@ -286,32 +300,51 @@ async fn do_sms_reply(state: &AppState, action: &DisplayAction) {
     ) {
         Ok(e) => e,
         Err(e) => {
-            publish_action_result(state, action, false, Some("internal_error"),
-                Some(format!("build envelope: {e}")));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("internal_error"),
+                Some(format!("build envelope: {e}")),
+            );
             return;
         }
     };
     if let Err(e) = state.registry.try_send(action.device_id, env).await {
-        publish_action_result(state, action, false, Some("phone_error"),
-            Some(format!("send: {e}")));
+        publish_action_result(
+            state,
+            action,
+            false,
+            Some("phone_error"),
+            Some(format!("send: {e}")),
+        );
         return;
     }
-    let _ = state.db.insert_audit_log(
-        Utc::now().timestamp_millis(),
-        Some(action.device_id),
-        "display.sms_reply",
-        None,
-    ).await;
+    let _ = state
+        .db
+        .insert_audit_log(
+            Utc::now().timestamp_millis(),
+            Some(action.device_id),
+            "display.sms_reply",
+            None,
+        )
+        .await;
     publish_action_result(state, action, true, None, None);
 }
 
 async fn do_notification_read(state: &AppState, action: &DisplayAction) {
-    if let Err(e) = state.db
+    if let Err(e) = state
+        .db
         .mark_notification_read(action.device_id, &action.envelope_id.to_string())
         .await
     {
-        publish_action_result(state, action, false, Some("internal_error"),
-            Some(format!("db: {e}")));
+        publish_action_result(
+            state,
+            action,
+            false,
+            Some("internal_error"),
+            Some(format!("db: {e}")),
+        );
         return;
     }
     publish_action_result(state, action, true, None, None);
@@ -323,21 +356,36 @@ async fn do_notification_dismiss(state: &AppState, action: &DisplayAction) {
     let env = match phonebridge_proto::Envelope::new(
         MessageType::NotificationDismissed,
         state.our_device_id,
-        NotificationDismissed { id: action.envelope_id.to_string() },
+        NotificationDismissed {
+            id: action.envelope_id.to_string(),
+        },
     ) {
         Ok(e) => e,
         Err(e) => {
-            publish_action_result(state, action, false, Some("internal_error"),
-                Some(format!("build envelope: {e}")));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("internal_error"),
+                Some(format!("build envelope: {e}")),
+            );
             return;
         }
     };
     if let Err(e) = state.registry.try_send(action.device_id, env).await {
-        publish_action_result(state, action, false, Some("phone_error"),
-            Some(format!("send: {e}")));
+        publish_action_result(
+            state,
+            action,
+            false,
+            Some("phone_error"),
+            Some(format!("send: {e}")),
+        );
         return;
     }
-    let _ = state.db.dismiss_notification(action.device_id, &action.envelope_id.to_string()).await;
+    let _ = state
+        .db
+        .dismiss_notification(action.device_id, &action.envelope_id.to_string())
+        .await;
     publish_action_result(state, action, true, None, None);
 }
 
@@ -351,14 +399,24 @@ async fn do_call_answer(state: &AppState, action: &DisplayAction) {
     ) {
         Ok(e) => e,
         Err(e) => {
-            publish_action_result(state, action, false, Some("internal_error"),
-                Some(format!("build envelope: {e}")));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("internal_error"),
+                Some(format!("build envelope: {e}")),
+            );
             return;
         }
     };
     if let Err(e) = state.registry.try_send(action.device_id, env).await {
-        publish_action_result(state, action, false, Some("phone_error"),
-            Some(format!("send: {e}")));
+        publish_action_result(
+            state,
+            action,
+            false,
+            Some("phone_error"),
+            Some(format!("send: {e}")),
+        );
         return;
     }
     publish_action_result(state, action, true, None, None);
@@ -377,14 +435,24 @@ async fn do_call_end(state: &AppState, action: &DisplayAction) {
     ) {
         Ok(e) => e,
         Err(e) => {
-            publish_action_result(state, action, false, Some("internal_error"),
-                Some(format!("build envelope: {e}")));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("internal_error"),
+                Some(format!("build envelope: {e}")),
+            );
             return;
         }
     };
     if let Err(e) = state.registry.try_send(action.device_id, env).await {
-        publish_action_result(state, action, false, Some("phone_error"),
-            Some(format!("send: {e}")));
+        publish_action_result(
+            state,
+            action,
+            false,
+            Some("phone_error"),
+            Some(format!("send: {e}")),
+        );
         return;
     }
     publish_action_result(state, action, true, None, None);
@@ -397,18 +465,30 @@ async fn do_call_dial(state: &AppState, action: &DisplayAction, number: &str) {
     let env = match phonebridge_proto::Envelope::new(
         MessageType::CallDialRequest,
         state.our_device_id,
-        CallDialRequest { number: number.to_string() },
+        CallDialRequest {
+            number: number.to_string(),
+        },
     ) {
         Ok(e) => e,
         Err(e) => {
-            publish_action_result(state, action, false, Some("internal_error"),
-                Some(format!("build envelope: {e}")));
+            publish_action_result(
+                state,
+                action,
+                false,
+                Some("internal_error"),
+                Some(format!("build envelope: {e}")),
+            );
             return;
         }
     };
     if let Err(e) = state.registry.try_send(action.device_id, env).await {
-        publish_action_result(state, action, false, Some("phone_error"),
-            Some(format!("send: {e}")));
+        publish_action_result(
+            state,
+            action,
+            false,
+            Some("phone_error"),
+            Some(format!("send: {e}")),
+        );
         return;
     }
     publish_action_result(state, action, true, None, None);
@@ -472,7 +552,10 @@ fn publish_phone_offline(state: &AppState, action: &DisplayAction) {
         action,
         false,
         Some("phone_offline"),
-        Some(format!("device {} is not currently connected", action.device_id)),
+        Some(format!(
+            "device {} is not currently connected",
+            action.device_id
+        )),
     );
 }
 

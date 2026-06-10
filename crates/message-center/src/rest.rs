@@ -31,12 +31,12 @@
 //! at the message-center’s HTTPS port). The raw OpenAPI JSON is at
 //! `/console/api-docs/openapi.json`.
 
-use axum::Json;
-use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
+use axum::Json;
+use axum::Router;
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
-use uuid::Uuid;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use phonebridge_proto::{MessageType, SmsSendRequest, SmsSendResult};
 use phonebridge_storage::models::{
@@ -198,10 +198,7 @@ async fn list_devices(State(state): State<AppState>) -> impl IntoResponse {
         (status = 404, description = "Device not found"),
     )
 )]
-async fn get_device(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn get_device(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     match state.db.get_device(id).await {
         Ok(Some(d)) => (StatusCode::OK, Json(d)).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, "device not found").into_response(),
@@ -221,16 +218,18 @@ async fn get_device(
         (status = 500, description = "DB error"),
     )
 )]
-async fn remove_device(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn remove_device(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     state.pairing.remove(&id);
     state.registry.unregister(&id);
     state.pin_store.write().remove(&id);
     let _ = state
         .db
-        .insert_audit_log(Utc::now().timestamp_millis(), Some(id), "device.unpair", None)
+        .insert_audit_log(
+            Utc::now().timestamp_millis(),
+            Some(id),
+            "device.unpair",
+            None,
+        )
         .await;
     if let Err(e) = state.db.remove_device(id).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response();
@@ -366,9 +365,9 @@ async fn pair_start(
     // the Responder (which is no longer the active role).
     state.pairing.insert(
         device_id,
-        phonebridge_net::DeviceSession::Unpaired(
-            phonebridge_net::UnpairedSession::Initiator(initiator),
-        ),
+        phonebridge_net::DeviceSession::Unpaired(phonebridge_net::UnpairedSession::Initiator(
+            initiator,
+        )),
     );
     info!(%device_id, "pair_start: sent device.pair.request");
 
@@ -476,9 +475,9 @@ async fn pair_accept(
     // device.pair.complete.
     state.pairing.insert(
         device_id,
-        phonebridge_net::DeviceSession::Unpaired(
-            phonebridge_net::UnpairedSession::Initiator(initiator),
-        ),
+        phonebridge_net::DeviceSession::Unpaired(phonebridge_net::UnpairedSession::Initiator(
+            initiator,
+        )),
     );
     info!(%device_id, "pair_accept: sent device.pair.accept");
 
@@ -805,10 +804,21 @@ async fn list_notifications(
     let limit = q.limit.unwrap_or(50).clamp(1, 500);
     match state
         .db
-        .list_notifications(q.device_id, limit, q.unread_only.unwrap_or(false), q.package.as_deref())
+        .list_notifications(
+            q.device_id,
+            limit,
+            q.unread_only.unwrap_or(false),
+            q.package.as_deref(),
+        )
         .await
     {
-        Ok(rows) => (StatusCode::OK, Json(NotificationsResponse { notifications: rows })).into_response(),
+        Ok(rows) => (
+            StatusCode::OK,
+            Json(NotificationsResponse {
+                notifications: rows,
+            }),
+        )
+            .into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response(),
     }
 }
@@ -858,7 +868,10 @@ async fn notifications_stats(
         .await
         .unwrap_or_default()
         .into_iter()
-        .map(|(p, c)| PackageCount { package: p, count: c })
+        .map(|(p, c)| PackageCount {
+            package: p,
+            count: c,
+        })
         .collect();
     (
         StatusCode::OK,
@@ -925,11 +938,7 @@ async fn dismiss_notification(
                 .into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("db: {e}"),
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")).into_response();
         }
     };
 
@@ -1240,10 +1249,7 @@ pub struct DialRequest {
         (status = 409, description = "Device not connected"),
     )
 )]
-async fn dial(
-    State(state): State<AppState>,
-    Json(req): Json<DialRequest>,
-) -> impl IntoResponse {
+async fn dial(State(state): State<AppState>, Json(req): Json<DialRequest>) -> impl IntoResponse {
     if !state.registry.connected_ids().contains(&req.device_id) {
         return (
             StatusCode::CONFLICT,
@@ -1378,20 +1384,20 @@ async fn dashboard(
         .await
         .map_err(|e| DashboardError::Query("list_calls", e.into()))?;
     let call_total = calls.len() as i64;
-    let call_missed = calls
-        .iter()
-        .filter(|c| c.direction == "missed")
-        .count() as i64;
-    let call_ringing = calls
-        .iter()
-        .filter(|c| c.state == "ringing")
-        .count() as i64;
+    let call_missed = calls.iter().filter(|c| c.direction == "missed").count() as i64;
+    let call_ringing = calls.iter().filter(|c| c.state == "ringing").count() as i64;
 
     let body = DashboardBody {
         paired_devices: paired,
         online_devices: state.registry.connected_count() as i64,
-        notifications: NotificationCounts { total: notif_total, unread: notif_unread },
-        sms: SmsCounts { total: sms_total, conversations: sms_convos },
+        notifications: NotificationCounts {
+            total: notif_total,
+            unread: notif_unread,
+        },
+        sms: SmsCounts {
+            total: sms_total,
+            conversations: sms_convos,
+        },
         calls: CallCounts {
             total: call_total,
             missed: call_missed,
@@ -1487,8 +1493,7 @@ mod tests {
             data_dir: std::env::temp_dir(),
             log_dir: std::env::temp_dir(),
         };
-        let display_auth = DisplayAuth::load_or_generate(&auth_paths)
-            .unwrap();
+        let display_auth = DisplayAuth::load_or_generate(&auth_paths).unwrap();
         AppState::new(
             std::sync::Arc::new(phonebridge_core::Config::default()),
             std::sync::Arc::new(db),
@@ -1506,7 +1511,12 @@ mod tests {
         let state = make_state().await;
         let app = router().with_state(state);
         let resp = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), S::OK);
@@ -1521,7 +1531,12 @@ mod tests {
         let state = make_state().await;
         let app = router().with_state(state);
         let resp = app
-            .oneshot(Request::builder().uri("/dashboard").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/dashboard")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), S::OK);
@@ -1572,7 +1587,12 @@ mod tests {
         let state = make_state().await;
         let app = router().with_state(state);
         let resp = app
-            .oneshot(Request::builder().uri("/calls").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/calls")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), S::OK);
@@ -1583,7 +1603,12 @@ mod tests {
         let state = make_state().await;
         let app = router().with_state(state);
         let resp = app
-            .oneshot(Request::builder().uri("/audit").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/audit")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), S::OK);
@@ -1663,31 +1688,26 @@ mod tests {
             .unwrap();
         state
             .db
-            .insert_notification(
-                &NotificationRow {
-                    id: notif_id.clone(),
-                    device_id,
-                    package_name: "com.example".into(),
-                    app_name: Some("Test".into()),
-                    title: "hello".into(),
-                    content: "world".into(),
-                    posted_at: 1,
-                    is_sensitive: false,
-                    category: None,
-                    read: false,
-                },
-            )
+            .insert_notification(&NotificationRow {
+                id: notif_id.clone(),
+                device_id,
+                package_name: "com.example".into(),
+                app_name: Some("Test".into()),
+                title: "hello".into(),
+                content: "world".into(),
+                posted_at: 1,
+                is_sensitive: false,
+                category: None,
+                read: false,
+            })
             .await
             .unwrap();
-            let app = router().with_state(state.clone());
+        let app = router().with_state(state.clone());
         let resp = app
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!(
-                        "/notifications/{}/{}/dismiss",
-                        device_id, notif_id
-                    ))
+                    .uri(format!("/notifications/{}/{}/dismiss", device_id, notif_id))
                     .body(Body::empty())
                     .unwrap(),
             )

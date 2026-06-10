@@ -13,14 +13,12 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use message_center::console_bus::ConsoleBus;
 use message_center::test_context;
-use phonebridge_proto::{
-    Envelope, MessageType, NotificationReceived,
-};
+use phonebridge_proto::{Envelope, MessageType, NotificationReceived};
 use phonebridge_storage::Db;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::client_async;
+use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -63,7 +61,10 @@ async fn console_ws_pushes_events() {
 
     // Connect a fake console client.
     let client = TcpStream::connect(addr).await.unwrap();
-    let mut ws = client_async("ws://localhost/console", client).await.unwrap().0;
+    let mut ws = client_async("ws://localhost/console", client)
+        .await
+        .unwrap()
+        .0;
 
     // First message should be the hello.
     let hello = next_text(&mut ws, Duration::from_secs(2)).await.unwrap();
@@ -97,8 +98,15 @@ async fn console_ws_pushes_events() {
     let _ = server.await;
 }
 
-async fn next_text(ws: &mut tokio_tungstenite::WebSocketStream<TcpStream>, dur: Duration) -> Option<String> {
+async fn next_text(
+    ws: &mut tokio_tungstenite::WebSocketStream<TcpStream>,
+    dur: Duration,
+) -> Option<String> {
     let f = timeout(dur, ws.next()).await.ok()??;
     let m = f.ok()?;
-    if let Message::Text(t) = m { Some(t) } else { None }
+    if let Message::Text(t) = m {
+        Some(t)
+    } else {
+        None
+    }
 }

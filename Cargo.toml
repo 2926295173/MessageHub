@@ -7,7 +7,8 @@ members = [
     "crates/phonebridge-net",
     "crates/phonebridge-storage",
     "crates/phonebridge-bus",
-    "crates/phonebridge-daemon",
+    "crates/message-center",
+    "crates/phonebridge-display",
 ]
 
 [workspace.package]
@@ -49,6 +50,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 # Time / IDs
 uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+zvariant = "4.2"
 
 # Crypto (ring-only provider for rustls and rcgen; avoids aws-lc-rs toolchain dep)
 ring = "0.17"

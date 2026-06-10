@@ -99,50 +99,29 @@ pub const TRANSIENT_CATEGORIES: &[&str] = &["progress", "service", "transport", 
 /// [`should_filter`] function does not need to be edited.
 const NOISE_FILTERS: &[(&str, fn(&DisplayEvent) -> bool)] = &[
     // ---- kind-based: cheap, no payload access ----
-    (
-        "is_heartbeat",
-        |e| e.kind == "device.heartbeat",
-    ),
-    (
-        "is_pair_internal",
-        |e| e.kind.starts_with("device.pair."),
-    ),
-    (
-        "is_info_update",
-        |e| e.kind == "device.info.update",
-    ),
-    (
-        "is_unpair",
-        |e| e.kind == "device.unpair",
-    ),
+    ("is_heartbeat", |e| e.kind == "device.heartbeat"),
+    ("is_pair_internal", |e| e.kind.starts_with("device.pair.")),
+    ("is_info_update", |e| e.kind == "device.info.update"),
+    ("is_unpair", |e| e.kind == "device.unpair"),
     // ---- payload-based: require string lookup on payload ----
-    (
-        "is_own_pkg",
-        |e| {
-            e.kind == "notification.received"
-                && payload_str(&e.payload, "package")
-                    .map(|p| OWN_PACKAGES.contains(&p))
-                    .unwrap_or(false)
-        },
-    ),
-    (
-        "is_sys_noise",
-        |e| {
-            e.kind == "notification.received"
-                && payload_str(&e.payload, "package")
-                    .map(|p| SYSTEM_NOISE_PACKAGES.contains(&p))
-                    .unwrap_or(false)
-        },
-    ),
-    (
-        "is_transient_cat",
-        |e| {
-            e.kind == "notification.received"
-                && payload_str(&e.payload, "category")
-                    .map(|c| TRANSIENT_CATEGORIES.contains(&c))
-                    .unwrap_or(false)
-        },
-    ),
+    ("is_own_pkg", |e| {
+        e.kind == "notification.received"
+            && payload_str(&e.payload, "package")
+                .map(|p| OWN_PACKAGES.contains(&p))
+                .unwrap_or(false)
+    }),
+    ("is_sys_noise", |e| {
+        e.kind == "notification.received"
+            && payload_str(&e.payload, "package")
+                .map(|p| SYSTEM_NOISE_PACKAGES.contains(&p))
+                .unwrap_or(false)
+    }),
+    ("is_transient_cat", |e| {
+        e.kind == "notification.received"
+            && payload_str(&e.payload, "category")
+                .map(|c| TRANSIENT_CATEGORIES.contains(&c))
+                .unwrap_or(false)
+    }),
 ];
 
 /// Read a string field from the `DisplayEvent.payload` JSON, returning
@@ -169,7 +148,7 @@ pub fn should_filter(event: &DisplayEvent) -> Option<&'static str> {
 mod tests {
     use super::*;
     use phonebridge_proto::DisplayEvent;
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
     use uuid::Uuid;
 
     fn ev(kind: &str, payload: Value) -> DisplayEvent {
@@ -348,10 +327,7 @@ mod tests {
 
     #[test]
     fn notification_dismissed_passes() {
-        let e = ev(
-            "notification.dismissed",
-            json!({"id": "notif-1"}),
-        );
+        let e = ev("notification.dismissed", json!({"id": "notif-1"}));
         assert_eq!(should_filter(&e), None);
     }
 

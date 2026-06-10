@@ -28,18 +28,28 @@ impl AppPaths {
         let config_dir = std::env::var("PHONEBRIDGE_CONFIG_DIR")
             .ok()
             .map(|s| expand_tilde(&s))
-            .or_else(|| directories::ProjectDirs::from("im", "zyx", "phonebridge").map(|d| d.config_dir().to_path_buf()))
+            .or_else(|| {
+                directories::ProjectDirs::from("im", "zyx", "phonebridge")
+                    .map(|d| d.config_dir().to_path_buf())
+            })
             .ok_or(PathError::NoConfigDir)?;
 
         let data_dir = std::env::var("PHONEBRIDGE_DATA_DIR")
             .ok()
             .map(|s| expand_tilde(&s))
-            .or_else(|| directories::ProjectDirs::from("im", "zyx", "phonebridge").map(|d| d.data_dir().to_path_buf()))
+            .or_else(|| {
+                directories::ProjectDirs::from("im", "zyx", "phonebridge")
+                    .map(|d| d.data_dir().to_path_buf())
+            })
             .ok_or(PathError::NoDataDir)?;
 
         let log_dir = data_dir.clone();
 
-        Ok(Self { config_dir, data_dir, log_dir })
+        Ok(Self {
+            config_dir,
+            data_dir,
+            log_dir,
+        })
     }
 
     /// Make sure all directories exist on disk.
@@ -117,8 +127,14 @@ mod tests {
     #[test]
     fn app_paths_resolve_with_overrides() {
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("PHONEBRIDGE_CONFIG_DIR", tmp.path().join("c").to_str().unwrap());
-        std::env::set_var("PHONEBRIDGE_DATA_DIR", tmp.path().join("d").to_str().unwrap());
+        std::env::set_var(
+            "PHONEBRIDGE_CONFIG_DIR",
+            tmp.path().join("c").to_str().unwrap(),
+        );
+        std::env::set_var(
+            "PHONEBRIDGE_DATA_DIR",
+            tmp.path().join("d").to_str().unwrap(),
+        );
         let paths = AppPaths::resolve().unwrap();
         paths.ensure().unwrap();
         assert!(paths.config_dir.exists());

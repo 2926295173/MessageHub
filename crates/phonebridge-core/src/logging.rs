@@ -19,8 +19,8 @@ use crate::config::LoggingConfig;
 /// - Always also write to stdout.
 /// - `level` is overridden by the `RUST_LOG` env var if present.
 pub fn init(cfg: &LoggingConfig) -> Result<(), LoggingError> {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&cfg.level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cfg.level));
 
     let fmt_layer = fmt::layer()
         .with_target(true)
@@ -36,9 +36,7 @@ pub fn init(cfg: &LoggingConfig) -> Result<(), LoggingError> {
     } else {
         let file = open_log_file(Path::new(&cfg.file))?;
         let (nb_writer, _guard) = tracing_appender::non_blocking(file);
-        let file_layer = fmt::layer()
-            .with_writer(nb_writer)
-            .with_ansi(false);
+        let file_layer = fmt::layer().with_writer(nb_writer).with_ansi(false);
         tracing_subscriber::registry()
             .with(env_filter)
             .with(fmt_layer)

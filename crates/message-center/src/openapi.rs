@@ -20,21 +20,19 @@
 #![forbid(unsafe_code)]
 #![allow(missing_docs)]
 
-use axum::Router;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::Router;
 use utoipa::OpenApi;
 
-use phonebridge_storage::models::{
-    AuditLogRow, CallRow, DeviceRow, NotificationRow, SmsRow,
-};
+use phonebridge_storage::models::{AuditLogRow, CallRow, DeviceRow, NotificationRow, SmsRow};
 
 use crate::app_state::AppState;
 use crate::rest::{
     AuditListResponse, CallCounts, CallsResponse, CertBody, DashboardBody, DeviceListResponse,
     HealthBody, NotificationCounts, NotificationsResponse, NotificationsStats, PackageCount,
-    PairingsResponse, SmsConversationsResponse, SmsConversation, SmsCounts, SmsListResponse,
+    PairingsResponse, SmsConversation, SmsConversationsResponse, SmsCounts, SmsListResponse,
 };
 
 #[derive(OpenApi)]
@@ -123,7 +121,6 @@ const SWAGGER_HTML: &str = r##"<!doctype html>
 /// Build the OpenAPI sub-router. Returns `Router<AppState>` for
 /// compatibility with the rest of the app; the routes are stateless.
 pub fn router() -> Router<AppState> {
-    
     let doc = ApiDoc::openapi();
 
     Router::new()
@@ -131,11 +128,7 @@ pub fn router() -> Router<AppState> {
             "/console/api-docs/openapi.json",
             get(move || async move {
                 let json = doc.to_pretty_json().unwrap_or_else(|_| "{}".to_string());
-                (
-                    [(header::CONTENT_TYPE, "application/json")],
-                    json,
-                )
-                    .into_response()
+                ([(header::CONTENT_TYPE, "application/json")], json).into_response()
             }),
         )
         .route(
