@@ -16,8 +16,8 @@ edition = "2021"
 rust-version = "1.78"
 license = "AGPL-3.0-or-later"
 authors = ["PhoneBridge Contributors"]
-repository = "https://github.com/anomalyco/phonebridge"
-homepage = "https://github.com/anomalyco/phonebridge"
+repository = "https://github.com/2926295173/MessageHub"
+homepage = "https://github.com/2926295173/MessageHub"
 
 [workspace.dependencies]
 # Async runtime
