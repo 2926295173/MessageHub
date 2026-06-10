@@ -8,14 +8,18 @@
   <em>LAN-first, self-hosted, cross-platform bridge to manage multiple Android phones from a single message-center.</em>
 </p>
 
-**Status:** 🚧 Pre-alpha / under active development. MVP scope: device pairing, notification sync, SMS send/receive, call control. Milestones: M0 ✅ scaffold · M1 ✅ message-center · M2 ✅ discovery/pairing/WS · M3 ✅ business channels · M4 ✅ CI/OpenAPI/live push · M5 ✅ Android client · **M6 hardening** (Android Keystore identity, swipe-to-dismiss reverse channel, robust SmsReceiver, persistent WS).
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh.md">简体中文</a>
+</p>
+
+**Status:** 🚧 Pre-alpha / under active development. MVP scope: device pairing, notification sync, SMS send/receive, call control. Milestones: M0 ✅ scaffold · M1 ✅ message-center core · M2 ✅ discovery / pairing / WebSocket · M3 ✅ business channels · M4 ✅ CI / OpenAPI / live push · M5 ✅ Android client · **M6 hardening** ✅ (Android Keystore-backed identity, swipe-to-dismiss reverse channel, robust `SmsReceiver`, persistent WS).
 
 ## What it is
 
 A three-component system:
 
-- **Android Agent** (Kotlin + Jetpack Compose, package `im.zyx.phonebridge`): registers on LAN via mDNS, maintains a foreground service, exposes notifications / SMS / call state to the message-center over a TLS+WebSocket connection.
-- **Message Center** (Rust, binary `message-center`): the central broker. Single binary, no native GUI. Hosts the local web console + WebSocket server + mDNS responder. Fans Android events out to two surfaces: the web console and the desktop notification endpoint.
+- **Android Agent** (Kotlin + Jetpack Compose, package `im.zyx.phonebridge`): registers on the LAN via mDNS, runs a foreground service, and forwards notifications / SMS / call state to the message-center over a TLS+WebSocket connection.
+- **Message Center** (Rust, binary `message-center`): the central broker. A single binary, no native GUI. Hosts the local web console, the WebSocket endpoints, and the mDNS responder. It fans Android events out to two surfaces: the web console and the desktop notification endpoint.
 - **Desktop Notifier** (Rust, binary `phonebridge-display`): subscribes to `/ws/display` on the message-center and surfaces phone events via the host OS notification surface (Linux: `org.freedesktop.Notifications`; macOS / Windows: planned).
 
 No cloud. No telemetry. No account. Works fully offline on a local network.
@@ -43,28 +47,28 @@ Inspired by KDE Connect and Microsoft Phone Link; explicitly focused on stable n
 
 The three components communicate as follows:
 
-- **Android Agent ↔ Message Center**: full-duplex Envelope frames over TLS+WebSocket. The agent is always the WS client.
-- **Desktop Notifier → Message Center**: subscribes to `/ws/display?token=<hex>`; receives phone events and sends back quick-reply / mark-read / dismiss actions.
+- **Android Agent ↔ Message Center**: full-duplex `Envelope` frames over TLS+WebSocket. The agent is always the WS client.
+- **Desktop Notifier → Message Center**: subscribes to `/ws/display?token=<hex>`; receives phone events and sends back `quick-reply` / `mark-read` / `dismiss` actions.
 - **Browser → Message Center**: standard HTTP for REST + WebSocket for live event push (`/ws/console`).
 
 ## Repository layout
 
 ```
-mykdeconnect/
-├── crates/                       # Rust workspace
-│   ├── phonebridge-proto/        # Wire protocol types (JSON Schema backed)
-│   ├── phonebridge-core/         # Config, paths, logging, errors
-│   ├── phonebridge-crypto/       # ECDH P-256, HKDF, self-signed certs
-│   ├── phonebridge-net/          # mDNS + WS handlers
-│   ├── phonebridge-storage/      # sqlx migrations + models
-│   ├── phonebridge-bus/          # In-process event bus (plugin hook reserve)
-│   ├── message-center/           # Main binary (the central broker)
-│   └── phonebridge-display/      # Desktop notifier (subscribes to /ws/display)
-├── frontend/                     # Next.js 16 (App Router, static export)
-├── android/                      # Kotlin + Compose client
-├── schema/                       # protocol.schema.json (source of truth)
-├── docs/                         # Protocol, threat model, permissions, dev setup
-└── scripts/                      # setup.sh, dev-run.sh, e2e-smoke.sh
+MessageHub/                         # upstream repo: github.com/2926295173/MessageHub
+├── crates/                         # Rust workspace
+│   ├── phonebridge-proto/          # Wire protocol types (JSON Schema backed)
+│   ├── phonebridge-core/           # Config, paths, logging, errors
+│   ├── phonebridge-crypto/         # ECDH P-256, HKDF, self-signed certs
+│   ├── phonebridge-net/            # mDNS + WebSocket handlers
+│   ├── phonebridge-storage/        # sqlx migrations + models
+│   ├── phonebridge-bus/            # In-process event bus (plugin hook reserve)
+│   ├── message-center/             # Main binary (the central broker)
+│   └── phonebridge-display/        # Desktop notifier (subscribes to /ws/display)
+├── frontend/                       # Next.js 16 (App Router, static export)
+├── android/                        # Kotlin + Compose client (im.zyx.phonebridge)
+├── schema/                         # protocol.schema.json (source of truth)
+├── docs/                           # Protocol, threat model, permissions, dev setup
+└── scripts/                        # setup.sh, dev-run.sh, e2e-smoke.sh
 ```
 
 ## MVP scope
@@ -72,11 +76,11 @@ mykdeconnect/
 - **Android:** device registration, LAN discovery (mDNS), pairing (4-digit code, ECDH), notification listening, SMS receive/send, call state monitoring, answer/hang-up.
 - **Desktop:** device management, WebSocket connection management, notification center, SMS center, call control, pairing management, embedded web console.
 
-Out of scope (architecture must accommodate, but no implementation): plugin system, ADB control, AI auto-classification, automation rules, webhooks, Telegram bot, Home Assistant, multi-user, remote gateway.
+Out of scope (the architecture must accommodate, but no implementation): plugin system, ADB control, AI auto-classification, automation rules, webhooks, Telegram bot, Home Assistant, multi-user, remote gateway.
 
 ## Changelog
 
-Notable changes are recorded in [`CHANGELOG.md`](CHANGELOG.md). The most recent entry covers the `phonebridge-daemon` → `message-center` rename (BREAKING — see the table there for what to update in your systemd unit / `RUST_LOG` / install path).
+Notable changes are recorded in [`CHANGELOG.md`](CHANGELOG.md). Past entries include the `phonebridge-daemon` → `message-center` binary rename (BREAKING — see the table there for what to update in your systemd unit / `RUST_LOG` / install path) and the `--no-tls` default-bind shift from `8443` to `8080`.
 
 ## Quick start (development)
 
