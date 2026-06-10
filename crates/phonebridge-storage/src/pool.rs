@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! Connection pool + migration runner + all DB queries.
 
 use std::path::Path;
@@ -70,16 +76,76 @@ impl Db {
 
     /// Insert or update a device row. The row's `id` (INTEGER PRIMARY KEY)
     /// is left to SQLite's auto-increment on first insert and kept
-    /// unchanged on subsequent upserts; the unique key is `device_id`.
+    /// unchanged on subsequent upserts.
+    ///
+    /// Dedup strategy (in order of preference):
+    ///   1. If the incoming row has a `hardware_id` AND a row with
+    ///      the same `hardware_id` already exists, update that row
+    ///      (refresh name/pubkey/last_seen and overwrite the
+    ///      `device_id` UUID to the new one). This is the normal
+    ///      case after a `pm clear` on the phone.
+    ///   2. Otherwise, dedupe on `device_id` (the original
+    ///      behaviour, kept for clients that don't send
+    ///      `hardware_id` yet).
+    ///
+    /// Implemented in two passes: a SELECT to find an existing
+    /// row by hardware_id, then either UPDATE that row OR INSERT
+    /// the new one. We do it in two queries (rather than a single
+    /// UPSERT with a generated key) because SQLite doesn't support
+    /// conditional conflict targets — you can only have one ON
+    /// CONFLICT clause per INSERT.
     pub async fn upsert_device(&self, d: &DeviceRow) -> Result<(), DbError> {
+        if let Some(hw) = d.hardware_id.as_deref() {
+            let existing = sqlx::query_as::<_, DeviceRow>(
+                "SELECT id, name, device_id, public_key, last_seen, paired, hardware_id \
+                 FROM devices WHERE hardware_id = ?1",
+            )
+            .bind(hw)
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(row) = existing {
+                // Refresh the existing row with the new identity.
+                // Importantly, we overwrite `device_id` with the
+                // freshly-minted UUID so all FK references in
+                // notifications / sms_messages / calls / pairings
+                // stay consistent. We do this by INSERT-OR-REPLACE
+                // with the same `id` (auto-increment is bypassed
+                // because we supply the PK explicitly).
+                sqlx::query(
+                    r#"
+                    UPDATE devices
+                    SET name = ?2,
+                        device_id = ?3,
+                        public_key = ?4,
+                        last_seen = ?5,
+                        paired = ?6,
+                        hardware_id = ?7
+                    WHERE id = ?1
+                    "#,
+                )
+                .bind(row.id)
+                .bind(&d.name)
+                .bind(d.device_id)
+                .bind(&d.public_key)
+                .bind(d.last_seen)
+                .bind(d.paired)
+                .bind(hw)
+                .execute(&self.pool)
+                .await?;
+                return Ok(());
+            }
+        }
+        // Fallback: dedupe on device_id (the v1 behaviour, also
+        // the path for clients that don't send hardware_id).
         sqlx::query(
             r#"
-            INSERT INTO devices (name, device_id, public_key, last_seen, paired)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO devices (name, device_id, public_key, last_seen, paired, hardware_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(device_id) DO UPDATE SET
                 name = excluded.name,
                 public_key = excluded.public_key,
-                last_seen = excluded.last_seen
+                last_seen = excluded.last_seen,
+                hardware_id = COALESCE(excluded.hardware_id, devices.hardware_id)
             "#,
         )
         .bind(&d.name)
@@ -87,6 +153,7 @@ impl Db {
         .bind(&d.public_key)
         .bind(d.last_seen)
         .bind(d.paired)
+        .bind(d.hardware_id.as_deref())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -95,7 +162,7 @@ impl Db {
     /// List all devices.
     pub async fn list_devices(&self) -> Result<Vec<DeviceRow>, DbError> {
         let rows = sqlx::query_as::<_, DeviceRow>(
-            "SELECT id, name, device_id, public_key, last_seen, paired FROM devices ORDER BY last_seen DESC",
+            "SELECT id, name, device_id, public_key, last_seen, paired, hardware_id FROM devices ORDER BY last_seen DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -105,7 +172,7 @@ impl Db {
     /// Get a device by its `device_id` (UUIDv4).
     pub async fn get_device(&self, device_id: uuid::Uuid) -> Result<Option<DeviceRow>, DbError> {
         let row = sqlx::query_as::<_, DeviceRow>(
-            "SELECT id, name, device_id, public_key, last_seen, paired FROM devices WHERE device_id = ?1",
+            "SELECT id, name, device_id, public_key, last_seen, paired, hardware_id FROM devices WHERE device_id = ?1",
         )
         .bind(device_id)
         .fetch_optional(&self.pool)
@@ -568,6 +635,7 @@ mod tests {
             public_key: "AAAA".into(),
             last_seen: 1717000000,
             paired: true,
+            hardware_id: None,
         };
         let dev_id = dev.device_id;
         db.upsert_device(&dev).await.unwrap();

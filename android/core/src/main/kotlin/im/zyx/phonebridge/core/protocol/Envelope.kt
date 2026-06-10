@@ -19,7 +19,7 @@ import kotlinx.serialization.json.JsonElement
  * ```
  *
  * There is no `to` field — every envelope is either from a device to
- * the daemon or vice versa; the address is implicit in the role.
+ * the message-center or vice versa; the address is implicit in the role.
  */
 @Serializable
 data class Envelope(

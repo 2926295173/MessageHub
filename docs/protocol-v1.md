@@ -27,7 +27,7 @@ Implementations **MUST** reject messages where `v != 1`. Forward compatibility (
 
 ## 3. Device identity
 
-Every device (Android phone, desktop daemon) has:
+Every device (Android phone, message-center) has:
 
 - A **stable UUIDv4** generated on first install (`device_id`).
 - A **long-term ECDH P-256 keypair** (NIST P-256, 32-byte private, 65-byte uncompressed public).
@@ -55,7 +55,7 @@ All types are namespaced `domain.action`. The schema enforces one payload schema
 | Type                   | Direction          | Purpose                                                  |
 |------------------------|--------------------|----------------------------------------------------------|
 | `device.pair.request`  | initiator → peer   | Send ephemeral ECDH pubkey.                              |
-| `device.pair.challenge`| responder → both   | Ephemeral pubkey + 6-digit code + 30s expiry timestamp.  |
+| `device.pair.challenge`| responder → both   | Ephemeral pubkey + 4-digit code + 30s expiry timestamp.  |
 | `device.pair.confirm`  | responder → initiator | `{accepted: true\|false}` from the user confirmation. |
 | `device.pair.accept`   | initiator → responder | Acknowledgement before sending the cert.              |
 | `device.pair.reject`   | responder → initiator | Optional reason string.                                |
@@ -70,11 +70,11 @@ shared_secret = ECDH(ephemeral_priv_initiator, ephemeral_pub_responder)
 hkdf_salt     = "phonebridge/v1/pair"       (UTF-8 bytes, 21)
 hkdf_info     = "phonebridge/v1/code"       (UTF-8 bytes, 21)
 okm            = HKDF-SHA256(shared_secret, salt=hkdf_salt, info=hkdf_info, L=4)
-code_int       = okm as u32 (big-endian) mod 1_000_000
-code           = format!("{:06}", code_int)
+code_int       = okm as u32 (big-endian) mod 10_000
+code           = format!("{:04}", code_int)
 ```
 
-The 6-digit code is shown **only on the Android side** (user confirmation). The desktop displays a generic "waiting for confirmation on phone" state with a 30-second countdown synced to `pair.challenge.expires_at`.
+The 4-digit code is shown **only on the Android side** (user confirmation). The desktop displays a generic "waiting for confirmation on phone" state with a 30-second countdown synced to `pair.challenge.expires_at`.
 
 ### 4.3 Notifications
 

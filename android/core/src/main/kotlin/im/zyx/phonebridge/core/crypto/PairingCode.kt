@@ -1,12 +1,12 @@
 package im.zyx.phonebridge.core.crypto
 
 /**
- * Derive a 6-digit decimal pairing code from a 32-byte ECDH shared
+ * Derive a 4-digit decimal pairing code from a 32-byte ECDH shared
  * secret. Wire-compatible with the Rust `pairing_code::derive_pairing_code`.
  */
 object PairingCode {
     /**
-     * @return a 6-character string in `[000000, 999999]`.
+     * @return a 4-character string in `[0000, 9999]`.
      */
     fun derive(sharedSecret: ByteArray): String {
         require(sharedSecret.size == 32) { "shared secret must be 32 bytes" }

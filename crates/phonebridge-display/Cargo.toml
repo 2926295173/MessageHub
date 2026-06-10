@@ -1,0 +1,62 @@
+[package]
+name = "phonebridge-display"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "PhoneBridge desktop display: subscribes to /ws/display and surfaces phone events via the host OS notification API."
+
+[[bin]]
+name = "phonebridge-display"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace
+phonebridge-proto = { path = "../phonebridge-proto" }
+
+# Async
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# HTTP / WS
+tokio-tungstenite = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+url = "2.5"
+
+# IDs
+uuid = { workspace = true }
+zvariant = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Config
+toml = { workspace = true }
+directories = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Linux-only: org.freedesktop.Notifications
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "4.4", default-features = false, features = ["tokio"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lints.rust]
+unsafe_code = "forbid"

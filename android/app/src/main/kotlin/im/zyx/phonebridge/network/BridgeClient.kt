@@ -1,7 +1,10 @@
 package im.zyx.phonebridge.network
 
 import android.util.Log
+import im.zyx.phonebridge.core.protocol.DeviceHelloPayload
+import im.zyx.phonebridge.core.protocol.DeviceType
 import im.zyx.phonebridge.core.protocol.Envelope
+import im.zyx.phonebridge.core.protocol.MessageType
 import im.zyx.phonebridge.core.protocol.json
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
@@ -38,6 +41,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.decodeFromJsonElement
 
 private const val TAG = "BridgeClient"
 
@@ -52,7 +56,7 @@ sealed interface BridgeStatus {
 }
 
 /**
- * Persistent Ktor-OkHttp WebSocket client to the desktop daemon.
+ * Persistent Ktor-OkHttp WebSocket client to the desktop message-center.
  *
  * Lifecycle:
  * - [start] launches a long-running coroutine that tries to (re)connect
@@ -60,15 +64,57 @@ sealed interface BridgeStatus {
  * - Incoming envelopes are pushed to [incoming] (a hot SharedFlow).
  * - Outgoing envelopes are queued via [send] (a Channel).
  * - Pairing is driven from outside; this class is a transport.
+ *
+ * Liveness:
+ * - The OkHttp engine is configured with `pingInterval(20s)` so
+ *   middlebox / NAT idle timers don't silently drop the socket. A
+ *   missed pong is reported as a connection failure, which kicks
+ *   the reconnect loop immediately.
+ * - [heartbeatEchoes] is a hot SharedFlow of (envelopeId → rttMs)
+ *   pairs that [im.zyx.phonebridge.keepalive.HeartbeatController]
+ *   uses to detect a stuck session (message-center responsive to TCP but
+ *   not echoing our app-level heartbeats).
+ * - [forceReconnect] is called by the heartbeat controller after
+ *   `MISSED_HEARTBEATS_BEFORE_RECONNECT` consecutive misses.
+ *
+ * Transport:
+ * - Defaults to **plain `ws://`** (matches the message-center's `--no-tls`
+ *   mode). To use TLS, pass [start] a non-null [pinnedFingerprint]
+ *   — the engine will then build a `wss://` client with the
+ *   existing PinnedTrustManager TOFU logic. The same URL host:port
+ *   is used; only the scheme flips.
  */
 @Singleton
 open class BridgeClient @Inject constructor() {
 
     private val _status = MutableStateFlow<BridgeStatus>(BridgeStatus.Disconnected)
-    val status: StateFlow<BridgeStatus> = _status.asStateFlow()
+    open val status: StateFlow<BridgeStatus> = _status.asStateFlow()
+
+    /**
+     * Display name of the desktop we're currently connected to,
+     * captured from its `device.hello` envelope. Null when
+     * disconnected, connecting, or the hello hasn't arrived yet.
+     *
+     * The desktop sends `device.hello` on every accepted WebSocket
+     * (per protocol v1, the same envelope shape used by the phone),
+     * so this is the canonical name for the bridge end on the LAN.
+     * It's exposed as a hot StateFlow so UI layers can react
+     * immediately to name changes (e.g., user renames the daemon
+     * host and restarts it).
+     */
+    private val _desktopName = MutableStateFlow<String?>(null)
+    open val desktopName: StateFlow<String?> = _desktopName.asStateFlow()
 
     private val _incoming = MutableSharedFlow<Envelope>(extraBufferCapacity = 64)
     open val incoming: SharedFlow<Envelope> = _incoming.asSharedFlow()
+
+    /**
+     * Emits the id of every `device.heartbeat` we receive back from
+     * the message-center. Consumed by [HeartbeatController] to await an
+     * echo for a given send and measure the round-trip.
+     */
+    private val _heartbeatEchoes = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    open val heartbeatEchoes: SharedFlow<String> = _heartbeatEchoes.asSharedFlow()
 
     private val outgoing = Channel<Envelope>(capacity = 64)
     private val running = AtomicBoolean(false)
@@ -89,15 +135,36 @@ open class BridgeClient @Inject constructor() {
         _status.value = BridgeStatus.Disconnected
     }
 
-    open fun send(envelope: Envelope) {
+    /**
+     * Bypass the backoff and reconnect on the next scheduler tick.
+     * Called by [HeartbeatController] when it has decided the
+     * connection is stale.
+     */
+    open fun forceReconnect() {
+        val current = loopJob
+        if (current != null && current.isActive) {
+            current.cancel()
+        }
+        // The next call to `start` will see running==true and the
+        // previous loopJob is already cancelled, so a fresh loop is
+        // launched immediately. We must re-arm the flag though:
+        running.set(false)
+    }
+
+    open fun send(envelope: Envelope): Boolean {
         val ok = outgoing.trySend(envelope).isSuccess
         if (!ok) Log.w(TAG, "outgoing channel full, dropping ${envelope.type}")
+        return ok
     }
 
     private suspend fun runLoop(initialHost: String, initialPort: Int, pinnedFingerprint: String?) {
         var attempt = 0
         var host = initialHost
         var port = initialPort
+        // Reset the desktop-name slot on every (re)connect. The new
+        // session will repopulate it as soon as the daemon's hello
+        // arrives; until then the UI shows the fallback host:port.
+        _desktopName.value = null
         while (running.get()) {
             _status.value = BridgeStatus.Connecting(host, port)
             try {
@@ -109,50 +176,60 @@ open class BridgeClient @Inject constructor() {
                 _status.value = BridgeStatus.Error(t.message ?: t::class.simpleName ?: "error")
             }
             if (!running.get()) break
-            attempt = (attempt + 1).coerceAtMost(6)
-            val delayMs = 500L * (1L shl attempt) // 1, 2, 4, 8, 16, 32, 64 s
+            attempt = (attempt + 1).coerceAtMost(8)
+            val delayMs = 500L * (1L shl attempt) // 1, 2, 4, 8, 16, 32, 64, 128, 256 s
             delay(delayMs)
         }
         _status.value = BridgeStatus.Disconnected
     }
 
     private suspend fun runOnce(host: String, port: Int, pinnedFingerprint: String?) {
-        // Fingerprint pinning with TOFU semantics, enforced DURING the TLS
-        // handshake (not after the WebSocket is established):
-        //   - First connect: pinnedFingerprint is null; we accept any cert
-        //     and report its SHA-256 via BridgeStatus.Connected so the
-        //     caller (BridgeService) can persist it.
-        //   - Subsequent connects: pinnedFingerprint is the value stored
-        //     in PrefsRepository. PinnedTrustManager.checkServerTrusted
-        //     throws CertificateException on mismatch, which causes
-        //     OkHttp to abort the handshake BEFORE the WebSocket upgrade.
-        val capturer = PinnedTrustManager(pinnedFingerprint)
-        val trustManagers = arrayOf<TrustManager>(capturer)
-        val sslCtx = SSLContext.getInstance("TLS").apply { init(null, trustManagers, null) }
+        // Use TLS only when a fingerprint is pinned. The pair is
+        // stored together in prefs; flipping the pin to null
+        // therefore cleanly drops back to plain ws:// without
+        // touching any other code path.
+        val useTls = pinnedFingerprint != null
+        val scheme = if (useTls) "wss" else "ws"
 
-        val ok = OkHttpClient.Builder()
-            .sslSocketFactory(sslCtx.socketFactory, capturer)
-            .hostnameVerifier { _, _ -> true } // self-signed: hostname irrelevant; pin is the cert
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.SECONDS) // WebSocket long-lived
-            .build()
+        val capturer = if (useTls) PinnedTrustManager(pinnedFingerprint) else null
+
+        val ok = if (useTls && capturer != null) {
+            val trustManagers = arrayOf<TrustManager>(capturer)
+            val sslCtx = SSLContext.getInstance("TLS").apply { init(null, trustManagers, null) }
+            OkHttpClient.Builder()
+                .sslSocketFactory(sslCtx.socketFactory, capturer)
+                .hostnameVerifier { _, _ -> true } // self-signed: hostname irrelevant; pin is the cert
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS)
+                .pingInterval(20, TimeUnit.SECONDS)
+                .build()
+        } else {
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS)
+                .pingInterval(20, TimeUnit.SECONDS)
+                .build()
+        }
         val client = HttpClient(OkHttp) {
             install(WebSockets)
             engine { preconfigured = ok }
         }
         try {
-            val session = client.webSocketSession { url("wss://$host:$port/ws") }
-            // Handshake already passed (and any pin check already
-            // executed inside checkServerTrusted). Read the captured
-            // chain purely to report the fingerprint back to the caller.
-            val chain = capturer.lastChain.get()
-            val actualFp = chain?.firstOrNull()?.let { cert ->
+            val session = client.webSocketSession { url("$scheme://$host:$port/ws") }
+            // For TLS, the cert chain is in capturer.lastChain (set
+            // during checkServerTrusted). For plain ws:// there is
+            // no chain; report an empty fingerprint.
+            val actualFp = capturer?.lastChain?.get()?.firstOrNull()?.let { cert ->
                 sha256ColonUpper(cert.encoded)
             } ?: ""
-            if (pinnedFingerprint != null) {
-                Log.i(TAG, "TLS pinned fp verified: $actualFp")
+            if (useTls) {
+                if (pinnedFingerprint != null) {
+                    Log.i(TAG, "TLS pinned fp verified: $actualFp")
+                } else {
+                    Log.i(TAG, "TLS first-use: captured fp=$actualFp")
+                }
             } else {
-                Log.i(TAG, "TLS first-use: captured fp=$actualFp")
+                Log.i(TAG, "plain ws:// connected (no TLS)")
             }
             _status.value = BridgeStatus.Connected(host, port, actualFp)
             pumpLoop(session)
@@ -180,6 +257,26 @@ open class BridgeClient @Inject constructor() {
                 val env = runCatching { json.decodeFromString(Envelope.serializer(), text) }
                     .onFailure { Log.w(TAG, "bad envelope: $it; text=$text") }
                     .getOrNull() ?: continue
+                if (env.type == MessageType.DEVICE_HEARTBEAT) {
+                    _heartbeatEchoes.emit(env.id)
+                } else if (env.type == MessageType.DEVICE_HELLO) {
+                    // Capture the desktop's display name the moment
+                    // its hello arrives. The hello envelope is
+                    // bidirectional (the daemon sends one too), so
+                    // this also tells us we're past the handshake
+                    // and the peer is a real message-center. We
+                    // filter on device_type=Desktop to ignore our
+                    // own hello mirrored by the daemon in the rare
+                    // debug-echo case.
+                    runCatching {
+                        val hello = json.decodeFromJsonElement(
+                            DeviceHelloPayload.serializer(), env.payload
+                        )
+                        if (hello.device_type == DeviceType.Desktop) {
+                            _desktopName.value = hello.name
+                        }
+                    }.onFailure { Log.w(TAG, "bad device.hello payload: $it") }
+                }
                 _incoming.emit(env)
             }
         } finally {
@@ -203,7 +300,7 @@ open class BridgeClient @Inject constructor() {
  *     handshake before any WebSocket frames are exchanged, closing
  *     the MITM hole that a post-handshake check would leave open.
  *
- * The daemon uses a self-signed cert that is not chained from any
+ * The message-center uses a self-signed cert that is not chained from any
  * public CA, so we intentionally do not delegate to the system trust
  * store; the pin is the source of truth. The `hostnameVerifier` in
  * the caller bypasses CN/SAN matching for the same reason.

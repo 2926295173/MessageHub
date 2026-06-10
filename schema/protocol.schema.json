@@ -204,7 +204,13 @@
           },
           "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
           "manufacturer": { "type": "string", "maxLength": 64 },
-          "model": { "type": "string", "maxLength": 64 }
+          "model": { "type": "string", "maxLength": 64 },
+          "hardware_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Stable per-physical-device identifier. On Android, this is Settings.Secure.ANDROID_ID — it survives `pm clear` (keyed by app signing key, not DataStore) so the daemon can recognise the same handset even after the Keystore-derived device_id UUID has been regenerated. Optional; when absent, the daemon falls back to deduping on device_id."
+          }
         },
         "additionalProperties": false
       },
@@ -245,7 +251,7 @@
           "code": {
             "type": "string",
             "pattern": "^[0-9]{6}$",
-            "description": "6-digit decimal confirmation code derived from the shared secret."
+            "description": "4-digit decimal confirmation code derived from the shared secret."
           },
           "expires_at": {
             "type": "integer",
@@ -434,6 +440,79 @@
         },
         "additionalProperties": false
       }
+    }
+  },
+
+  "display": {
+    "$comment": "Shape of newline-delimited JSON lines exchanged over the /ws/display endpoint. The same connection carries both directions; the `kind` field disambiguates server-push kinds from client-command kinds.",
+    "displayEvent": {
+      "type": "object",
+      "description": "Server → client push. The display endpoint uses `kind` to map to a native OS notification; `payload` carries the full deserialized event; `summary` is a pre-extracted short title.",
+      "required": ["kind", "device_id", "envelope_id", "timestamp", "payload"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "notification.received",
+            "notification.dismissed",
+            "sms.received",
+            "sms.send.result",
+            "call.incoming",
+            "call.state",
+            "device.hello",
+            "device.unpair",
+            "phone.offline",
+            "action.result"
+          ]
+        },
+        "device_id": { "type": "string", "format": "uuid" },
+        "envelope_id": { "type": "string", "format": "uuid" },
+        "timestamp": { "type": "integer", "minimum": 0, "description": "Unix epoch milliseconds" },
+        "payload": {
+          "type": "object",
+          "description": "Best-effort: the keys here depend on `kind`. For `notification.received` the keys are `package_name`, `title`, `content`, `app_name`; for `sms.received` they are `address`, `body`; for `call.incoming` they are `phone_number`, `contact_name`; for `sms.send.result` they are `ok` and `error_message`."
+        },
+        "summary": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "displayAction": {
+      "type": "object",
+      "description": "Client → server command. Bound to a `device_id` (the daemon refuses if not connected) and an `envelope_id` (the original event the user acted on).",
+      "required": ["kind", "envelope_id", "device_id"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "sms.reply",
+            "notification.read",
+            "notification.dismiss",
+            "call.answer",
+            "call.end"
+          ]
+        },
+        "envelope_id": { "type": "string", "format": "uuid" },
+        "device_id": { "type": "string", "format": "uuid" },
+        "to": { "type": "string", "maxLength": 64, "description": "Required for sms.reply: target phone number." },
+        "body": { "type": "string", "maxLength": 4096, "description": "Required for sms.reply: reply text." },
+        "call_id": { "type": "string", "maxLength": 128, "description": "Optional for call.answer / call.end." }
+      },
+      "additionalProperties": false
+    },
+    "actionResultEvent": {
+      "type": "object",
+      "description": "Server → client reply after a `displayAction` was processed. Carries enough context to surface a transient success / failure toast on the OS.",
+      "required": ["kind", "request_envelope_id", "device_id", "action_kind", "ok", "timestamp"],
+      "properties": {
+        "kind": { "type": "string", "const": "action.result" },
+        "request_envelope_id": { "type": "string", "format": "uuid" },
+        "device_id": { "type": "string", "format": "uuid" },
+        "action_kind": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "message": { "type": "string", "maxLength": 256, "description": "Failure reason (phone_offline, bad_request, phone_error, ...) or empty on success." },
+        "timestamp": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     }
   }
 }

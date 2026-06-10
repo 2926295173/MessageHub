@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PhoneBridge is a LAN-only tool. The daemon listens on a private
+  IP inside the user's home network and the Android client is the
+  only consumer. We allow cleartext HTTP/WS for the entire app —
+  the user has to manually configure the desktop host:port in
+  Settings, and the only connections made are to that host.
+
+  If we ever ship a release that talks to the public internet
+  (e.g. a remote-gateway feature), flip this back to false and
+  add explicit `<domain-config cleartextTrafficPermitted="true">`
+  entries for the LAN hostnames.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

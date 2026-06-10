@@ -34,7 +34,7 @@ private const val TAG = "CallController"
 
 /**
  * Bridges the desktop's call + SMS commands to the Android telephony
- * subsystem and reports call state changes to the daemon.
+ * subsystem and reports call state changes to the message-center.
  *
  * Permissions: READ_PHONE_STATE, CALL_PHONE, ANSWER_PHONE_CALLS.
  */

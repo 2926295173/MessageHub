@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PhoneBridge setup script
-# - Creates daemon runtime directories
+# - Creates message-center runtime directories
 # - Writes a sample config.toml if absent
 # - Pre-creates the SQLite database file parent
 # - Idempotent: safe to run multiple times
@@ -11,7 +11,7 @@ CONFIG_DIR="${PHONEBRIDGE_CONFIG_DIR:-$HOME/.config/phonebridge}"
 DATA_DIR="${PHONEBRIDGE_DATA_DIR:-$HOME/.local/share/phonebridge}"
 LOG_DIR="${PHONEBRIDGE_LOG_DIR:-$DATA_DIR}"
 
-# Resolve ~ in paths (the daemon does this too, but we mirror it here for clarity)
+# Resolve ~ in paths (the message-center does this too, but we mirror it here for clarity)
 expand_path() {
     local p="$1"
     case "$p" in
@@ -38,10 +38,15 @@ if [ -e "$CONFIG_FILE" ]; then
     echo "[ok] config already exists: $CONFIG_FILE (not overwriting)"
 else
     cat > "$CONFIG_FILE" <<'EOF'
-# PhoneBridge daemon configuration
-# Edit and restart the daemon after changes.
+# PhoneBridge message-center configuration
+# Edit and restart the message-center after changes.
 
 [server]
+# 8443 is the HTTPS-convention port; recommended for TLS mode.
+# When you run the message-center with `--no-tls` (plain HTTP, dev
+# only), the binary auto-shifts from this default to "0.0.0.0:8080"
+# unless you pass `--bind` explicitly. Override here to lock the
+# port regardless of which mode you run in.
 bind = "0.0.0.0:8443"
 # Path to TLS cert and key. Auto-generated on first run if missing.
 cert_path = ""
@@ -71,5 +76,5 @@ touch "$DATA_DIR/.keep"
 
 echo
 echo "Setup complete. Next steps:"
-echo "  cargo run -p phonebridge-daemon          # start the daemon"
+echo "  cargo run -p message-center              # start the message-center"
 echo "  open https://localhost:8443/console/     # open the web console"

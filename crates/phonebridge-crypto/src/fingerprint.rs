@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! SHA-256 fingerprint of a DER-encoded X.509 certificate.
 //!
 //! Output format: 32 bytes, rendered as 32 colon-separated upper-case hex

@@ -7,8 +7,11 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntoSet
 import im.zyx.phonebridge.data.IdentityStore
 import im.zyx.phonebridge.data.PrefsRepository
+import im.zyx.phonebridge.keepalive.BridgeAbility
+import im.zyx.phonebridge.keepalive.NotificationListenerAbility
 import im.zyx.phonebridge.network.BridgeClient
 import im.zyx.phonebridge.network.NsdRegistrar
 import im.zyx.phonebridge.telephony.CallController
@@ -32,6 +35,12 @@ abstract class AppBindModule {
     @Binds
     @Singleton
     abstract fun bindIdentityStore(impl: PrefsRepository): IdentityStore
+
+    @Binds
+    @IntoSet
+    abstract fun bindNotificationListenerAbility(
+        impl: NotificationListenerAbility
+    ): BridgeAbility
 }
 
 @Module

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-One-shot client: connects to the daemon's /ws as a fake Android,
+One-shot client: connects to the message-center's /ws as a fake Android,
 sends device.hello, then sends a notification.received envelope.
-Verifies the daemon persists it to its notifications table.
+Verifies the message-center persists it to its notifications table.
 """
 import asyncio
 import base64
@@ -14,11 +14,11 @@ import uuid
 
 import websockets
 
-DAEMON_WS = "wss://127.0.0.1:8443/ws"
-DAEMON_REST = "https://127.0.0.1:8443"
+CENTER_WS = "wss://127.0.0.1:8443/ws"
+CENTER_REST = "https://127.0.0.1:8443"
 
 OUR_DEVICE_ID = "11111111-2222-3333-4444-555555555555"
-DAEMON_DEVICE_ID = None  # will be picked up from the daemon's /health
+CENTER_DEVICE_ID = None  # will be picked up from the message-center's /health
 
 
 def b64(data: bytes) -> str:
@@ -30,7 +30,7 @@ async def main() -> int:
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    async with websockets.connect(DAEMON_WS, ssl=ssl_ctx) as ws:
+    async with websockets.connect(CENTER_WS, ssl=ssl_ctx) as ws:
         # 1. device.hello
         hello = {
             "v": 1,
@@ -90,7 +90,7 @@ async def main() -> int:
 
     # 3. Verify it shows up in REST
     import urllib.request
-    req = urllib.request.urlopen(f"{DAEMON_REST}/api/v1/notifications?device_id={OUR_DEVICE_ID}&limit=10")
+    req = urllib.request.urlopen(f"{CENTER_REST}/api/v1/notifications?device_id={OUR_DEVICE_ID}&limit=10")
     body = json.loads(req.read().decode())
     print(f"\nGET /api/v1/notifications returned {len(body['notifications'])} row(s):")
     for n in body["notifications"]:

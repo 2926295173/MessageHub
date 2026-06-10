@@ -26,13 +26,13 @@ private const val TAG = "NotifRelay"
 /**
  * Two-way bridge for system notifications.
  *
- * **Android → daemon** (forward):
+ * **Android → message-center** (forward):
  *   - [onNotificationPosted] packs the active notification's
  *     metadata and sends a `notification.received` envelope.
  *
  * **Daemon → Android** (reverse):
  *   - The service also subscribes to incoming envelopes from the
- *     daemon. A `notification.dismissed` envelope (triggered by
+ *     message-center. A `notification.dismissed` envelope (triggered by
  *     the user clicking "Dismiss" in the web console) calls
  *     [cancelNotification] with the `sbn.key` so the system
  *     removes the notification from the shade.
@@ -45,6 +45,7 @@ class NotificationRelayService : NotificationListenerService() {
 
     @Inject lateinit var client: BridgeClient
     @Inject lateinit var pairing: PairingMachine
+    @Inject lateinit var recentCache: RecentNotificationsCache
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var collectJob: kotlinx.coroutines.Job? = null
@@ -83,9 +84,7 @@ class NotificationRelayService : NotificationListenerService() {
         val ex = n.extras
         val title = ex?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = ex?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
-        val big = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            ex?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
-        } else null
+        val big = ex?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
 
         val payload = NotificationReceivedPayload(
             id = sbn.key,
@@ -97,6 +96,7 @@ class NotificationRelayService : NotificationListenerService() {
             is_sensitive = false,
             category = n.category
         )
+        recentCache.push(payload)
         val env = Envelope(
             v = 1,
             id = UUID.randomUUID().toString(),
@@ -110,7 +110,7 @@ class NotificationRelayService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         // The user swiped the notification on the device (or the
-        // system dismissed it). Mirror this to the daemon so the
+        // system dismissed it). Mirror this to the message-center so the
         // web console sees the same state. Reasons the system might
         // call this without a user action:
         //   - APP_CANCEL: the app that posted the notification
@@ -118,7 +118,7 @@ class NotificationRelayService : NotificationListenerService() {
         //   - APP_CANCEL_ALL: same but for all of the app's notifs
         //   - USER: the user swiped it
         //   - PACKAGE_REMOVED, PACKAGE_BANNED, etc.
-        // All of these warrant telling the daemon. The daemon's
+        // All of these warrant telling the message-center. The message-center's
         // `notification.dismissed` handler marks the row read; for
         // APP_CANCEL_* we don't want to send a notification.dismissed
         // (the row was never delivered to begin with), but the

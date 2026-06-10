@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! Pairing state machine, both sides.
 //!
 //! Roles:
@@ -6,7 +12,7 @@
 //!   The code is **never shown to the initiator**; it waits for the user to
 //!   confirm on the responder device (Android).
 //! - **Responder** (Android, in MVP): receives `device.pair.request`,
-//!   derives the 6-digit code from the ECDH shared secret, displays it to
+//!   derives the 4-digit code from the ECDH shared secret, displays it to
 //!   the user, then sends `device.pair.challenge` + (after user action)
 //!   `device.pair.confirm`.
 //!
@@ -45,7 +51,7 @@ pub enum PairingError {
     /// ECDH key parse or agree failed.
     #[error("ECDH error: {0}")]
     Ecdh(#[from] phonebridge_crypto::ecdh::EcdhError),
-    /// The 6-digit code in `pair.challenge` is malformed.
+    /// The 4-digit code in `pair.challenge` is malformed.
     #[error("malformed pairing code: {0}")]
     BadCode(String),
     /// The cert in `pair.complete` is malformed.
@@ -98,7 +104,7 @@ pub struct Initiator {
     /// Peer's ephemeral public key (from the received challenge), used for
     /// shared-secret computation.
     peer_ephemeral_pub: Option<PublicKey>,
-    /// The 6-digit code from the challenge (held in case the daemon wants
+    /// The 4-digit code from the challenge (held in case the daemon wants
     /// to expose it for parity / debug).
     challenge_code: Option<String>,
 }
@@ -106,7 +112,7 @@ pub struct Initiator {
 impl Initiator {
     /// Begin pairing. Generates a fresh identity and an ephemeral keypair.
     pub fn start(peer_device_id: Uuid, peer_name: impl Into<String>) -> Result<Self, PairingError> {
-        let identity = cert::generate_self_signed("phonebridge-daemon", 3650)?;
+        let identity = cert::generate_self_signed("phonebridge-test-peer", 3650)?;
         let ephemeral = EphemeralKeyPair::generate()?;
         Ok(Self {
             core: InitiatorCore { identity, peer_device_id, peer_name: peer_name.into() },
@@ -137,7 +143,7 @@ impl Initiator {
         )?)
     }
 
-    /// Accept a `device.pair.challenge` envelope. Validates the 6-digit
+    /// Accept a `device.pair.challenge` envelope. Validates the 4-digit
     /// code shape and the expiry.
     pub fn on_challenge(
         &mut self,
@@ -151,7 +157,7 @@ impl Initiator {
             });
         }
         let challenge: PairChallenge = env.parse_payload()?;
-        if challenge.code.len() != 6 || !challenge.code.chars().all(|c| c.is_ascii_digit()) {
+        if challenge.code.len() != 4 || !challenge.code.chars().all(|c| c.is_ascii_digit()) {
             return Err(PairingError::BadCode(challenge.code));
         }
         let now = Utc::now().timestamp_millis();
@@ -235,7 +241,7 @@ impl Initiator {
         &self.core.identity
     }
 
-    /// The 6-digit code from the last received challenge (if any).
+    /// The 4-digit code from the last received challenge (if any).
     pub fn challenge_code(&self) -> Option<&str> {
         self.challenge_code.as_deref()
     }
@@ -277,7 +283,7 @@ impl Responder {
         })
     }
 
-    /// Accept a `device.pair.request` envelope. Derives the 6-digit code.
+    /// Accept a `device.pair.request` envelope. Derives the 4-digit code.
     /// After this returns, [`Responder::code()`] is available.
     pub fn on_request(&mut self, env: &Envelope) -> Result<(), PairingError> {
         if env.message_type != MessageType::DevicePairRequest {
@@ -326,7 +332,7 @@ impl Responder {
         )?)
     }
 
-    /// The 6-digit code to display in the UI. None until `on_request` runs.
+    /// The 4-digit code to display in the UI. None until `on_request` runs.
     pub fn code(&self) -> Option<&str> {
         self.code.as_deref()
     }
@@ -434,6 +440,10 @@ pub fn build_hello_envelope(
             port: Some(port),
             manufacturer: None,
             model: None,
+            // No ANDROID_ID equivalent on the desktop; the
+            // e2e-smoke script always connects from a single
+            // dev box so device_id dedup is sufficient.
+            hardware_id: None,
         },
     )?)
 }
@@ -443,7 +453,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn responder_derives_6_digit_code() {
+    fn responder_derives_4_digit_code() {
         let mut r = Responder::start(Uuid::new_v4()).unwrap();
         let initiator_kp = EphemeralKeyPair::generate().unwrap();
         let req_env = Envelope::new(
@@ -456,7 +466,7 @@ mod tests {
         .unwrap();
         r.on_request(&req_env).unwrap();
         let code = r.code().unwrap();
-        assert_eq!(code.len(), 6);
+        assert_eq!(code.len(), 4);
         assert!(code.chars().all(|c| c.is_ascii_digit()));
         let exp = r.expires_at_ms().unwrap();
         assert!(exp > Utc::now().timestamp_millis());
@@ -487,7 +497,7 @@ mod tests {
             Uuid::new_v4(),
             PairChallenge {
                 ephemeral_pubkey: "AAAA".into(),
-                code: "123456".into(),
+                code: "1234".into(),
                 expires_at: 1,
             },
         )
@@ -510,6 +520,7 @@ mod tests {
                 port: None,
                 manufacturer: None,
                 model: None,
+                hardware_id: None,
             },
         )
         .unwrap();

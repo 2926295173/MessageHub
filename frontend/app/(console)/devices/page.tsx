@@ -1,15 +1,23 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
 import { api, type Device } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 function fmtTime(t: number): string {
   if (!t) return "—";
   return new Date(t * 1000).toLocaleString();
 }
 
+/**
+ * Devices — operational view: who is connected, who's paired, when
+ * were they last seen. The long-term credentials (device id, public
+ * key) are intentionally NOT shown on this page; they live on the
+ * About page so that a glance at the device list doesn't surface
+ * the secrets needed to impersonate a paired phone.
+ */
 export default function DevicesPage() {
+  const t = useT();
   const qc = useQueryClient();
   const devices = useQuery({
     queryKey: ["devices"],
@@ -21,11 +29,6 @@ export default function DevicesPage() {
     queryFn: () => api.dashboard(),
     refetchInterval: 5_000,
   });
-  const online = new Set(
-    // (we approximate by reading the dashboard's online count; a future
-    // improvement is to expose the actual connected ids via /devices)
-    [],
-  );
   const remove = useMutation({
     mutationFn: (id: string) => api.removeDevice(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["devices"] }),
@@ -34,10 +37,9 @@ export default function DevicesPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">Devices</h1>
+        <h1 className="text-2xl font-semibold">{t("devices.title")}</h1>
         <p className="text-sm text-base-content/60">
-          Android clients paired with this daemon. {dashboard.data?.online_devices ?? 0} currently
-          online.
+          {t("devices.subtitle", { n: dashboard.data?.online_devices ?? 0 })}
         </p>
       </header>
 
@@ -46,55 +48,53 @@ export default function DevicesPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Device id</th>
-                <th>Paired</th>
-                <th>Last seen</th>
-                <th>Public key (truncated)</th>
+                <th>{t("devices.col.name")}</th>
+                <th>{t("devices.col.paired")}</th>
+                <th>{t("devices.col.last_seen")}</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {devices.isLoading && (
                 <tr>
-                  <td colSpan={6} className="text-center text-sm opacity-60">
-                    Loading…
+                  <td colSpan={4} className="text-center text-sm opacity-60">
+                    {t("devices.loading")}
                   </td>
                 </tr>
               )}
               {devices.data?.devices.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-sm opacity-60">
-                    No devices yet. Open the PhoneBridge Android app to pair.
+                  <td colSpan={4} className="text-center text-sm opacity-60">
+                    {t("devices.empty")}
                   </td>
                 </tr>
               )}
               {devices.data?.devices.map((d: Device) => (
                 <tr key={d.id}>
                   <td>{d.name}</td>
-                  <td className="font-mono text-xs opacity-60">
-                    {d.device_id.slice(0, 8)}…
-                  </td>
                   <td>
                     {d.paired ? (
-                      <span className="badge badge-success badge-sm">paired</span>
+                      <span className="badge badge-success badge-sm">
+                        {t("devices.badge_paired")}
+                      </span>
                     ) : (
-                      <span className="badge badge-ghost badge-sm">discovered</span>
+                      <span className="badge badge-ghost badge-sm">
+                        {t("devices.badge_discovered")}
+                      </span>
                     )}
                   </td>
                   <td className="text-xs opacity-60">{fmtTime(d.last_seen)}</td>
-                  <td className="font-mono text-[10px] opacity-50">
-                    {d.public_key.slice(0, 20)}…
-                  </td>
                   <td>
                     <button
                       className="btn btn-ghost btn-xs text-error"
                       disabled={remove.isPending}
                       onClick={() => {
-                        if (confirm(`Unpair ${d.name}?`)) remove.mutate(d.device_id);
+                        if (confirm(t("devices.unpair_confirm", { name: d.name }))) {
+                          remove.mutate(d.device_id);
+                        }
                       }}
                     >
-                      Unpair
+                      {t("devices.unpair_btn")}
                     </button>
                   </td>
                 </tr>

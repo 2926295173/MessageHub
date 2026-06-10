@@ -1,4 +1,10 @@
-//! Derive the 6-digit decimal pairing code via HKDF-SHA256.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
+//! Derive the 4-digit decimal pairing code via HKDF-SHA256.
 //!
 //! See `docs/protocol-v1.md` §4.2 for the wire-level spec.
 //!
@@ -7,8 +13,8 @@
 //! hkdf_salt     = "phonebridge/v1/pair"        (21 bytes UTF-8)
 //! hkdf_info     = "phonebridge/v1/code"        (21 bytes UTF-8)
 //! okm           = HKDF-SHA256(shared_secret, salt, info, 4)
-//! code_int      = u32::from_be_bytes(okm) % 1_000_000
-//! code          = format!("{:06}", code_int)
+//! code_int      = u32::from_be_bytes(okm) % 10_000
+//! code          = format!("{:04}", code_int)
 //! ```
 
 use hkdf::Hkdf;
@@ -22,19 +28,19 @@ pub const HKDF_SALT: &[u8] = b"phonebridge/v1/pair";
 /// Info used in the pairing HKDF. Fixed constant per protocol v1.
 pub const HKDF_INFO: &[u8] = b"phonebridge/v1/code";
 
-/// Number of OKM bytes to extract (4 → fits a u32 mod 1_000_000).
+/// Number of OKM bytes to extract (4 → fits a u32 mod 10_000).
 pub const OKM_LEN: usize = 4;
 
-/// Derive the 6-digit decimal code from a 32-byte shared secret.
+/// Derive the 4-digit decimal code from a 32-byte shared secret.
 ///
-/// The output is always a 6-character string in `[000000, 999999]`.
+/// The output is always a 4-character string in `[0000, 9999]`.
 pub fn derive_pairing_code(shared_secret: &SharedSecret) -> String {
     let hk = Hkdf::<Sha256>::new(Some(HKDF_SALT), shared_secret);
     let mut okm = [0u8; OKM_LEN];
     hk.expand(HKDF_INFO, &mut okm)
         .expect("HKDF expand with 4 bytes is always valid");
     let n = u32::from_be_bytes(okm);
-    format!("{:06}", n % 1_000_000)
+    format!("{:04}", n % 10_000)
 }
 
 #[cfg(test)]
@@ -58,10 +64,10 @@ mod tests {
     }
 
     #[test]
-    fn pairing_code_is_6_digits() {
+    fn pairing_code_is_4_digits() {
         let shared = [0u8; 32];
         let code = derive_pairing_code(&shared);
-        assert_eq!(code.len(), 6);
+        assert_eq!(code.len(), 4);
         assert!(code.chars().all(|c| c.is_ascii_digit()));
     }
 
@@ -97,8 +103,9 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    /// Distribution check (loose): 100 random codes must be unique. With 1M
-    /// space and 100 samples, collision probability is < 0.5%.
+    /// Distribution check (loose): 100 random codes should mostly be unique.
+    /// With 10K space and 100 samples, ~40% expected collisions; we only
+    /// assert ≥10 unique to catch broken KDF wiring.
     #[test]
     fn codes_look_unique_in_small_sample() {
         use crate::ecdh::EphemeralKeyPair;
@@ -110,7 +117,12 @@ mod tests {
             let shared = alice.agree(&bob_pub).unwrap();
             codes.insert(derive_pairing_code(&shared));
         }
-        // Allow up to 1 collision.
-        assert!(codes.len() >= 99, "got only {} unique codes out of 100", codes.len());
+        // Allow many collisions; just verify the KDF is producing many
+        // distinct outputs (i.e. not stuck on a single value).
+        assert!(
+            codes.len() >= 10,
+            "only {} unique codes out of 100 — KDF looks broken",
+            codes.len()
+        );
     }
 }

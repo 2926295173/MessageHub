@@ -14,7 +14,18 @@ data class DeviceHelloPayload(
     val pubkey: String,
     val port: Int? = null,
     val manufacturer: String? = null,
-    val model: String? = null
+    val model: String? = null,
+    /**
+     * Stable per-physical-device identifier. On Android we send
+     * `Settings.Secure.ANDROID_ID` here — it survives `pm clear`
+     * (it is keyed by the app's signing key, not by DataStore)
+     * so the message-center can recognise the same handset even when its
+     * `device_id` UUID has been regenerated.
+     *
+     * Optional; older v1 clients leave it null and the message-center
+     * falls back to deduping on `device_id`.
+     */
+    val hardware_id: String? = null,
 )
 
 @Serializable

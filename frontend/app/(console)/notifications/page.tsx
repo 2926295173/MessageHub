@@ -3,12 +3,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Notification } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
 export default function NotificationsPage() {
+  const t = useT();
   const qc = useQueryClient();
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [packageFilter, setPackageFilter] = useState("");
@@ -47,16 +49,15 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Notifications</h1>
+          <h1 className="text-2xl font-semibold">{t("notif.title")}</h1>
           <p className="text-sm text-base-content/60">
-            All notifications synced from your Android devices. Click <b>Dismiss</b> to
-            remove a notification from the device (also marks it read on the daemon).
+            {t("notif.subtitle")}
           </p>
         </div>
         <div className="text-sm">
           {stats.data && (
             <span className="badge badge-lg">
-              {stats.data.unread} unread / {stats.data.total} total
+              {stats.data.unread} / {stats.data.total}
             </span>
           )}
         </div>
@@ -70,12 +71,12 @@ export default function NotificationsPage() {
             checked={unreadOnly}
             onChange={(e) => setUnreadOnly(e.target.checked)}
           />
-          <span className="text-sm">Unread only</span>
+          <span className="text-sm">{t("notif.unread_only")}</span>
         </label>
         <input
           type="text"
           className="input input-bordered input-sm"
-          placeholder="Filter by app package…"
+          placeholder={t("notif.filter_placeholder")}
           value={packageFilter}
           onChange={(e) => setPackageFilter(e.target.value)}
         />
@@ -96,9 +97,9 @@ export default function NotificationsPage() {
       )}
 
       <div className="space-y-2">
-        {notifications.isLoading && <div className="text-sm opacity-60">Loading…</div>}
+        {notifications.isLoading && <div className="text-sm opacity-60">{t("notif.loading")}</div>}
         {notifications.data?.notifications.length === 0 && (
-          <div className="text-sm opacity-60">No notifications match.</div>
+          <div className="text-sm opacity-60">{t("notif.empty")}</div>
         )}
         {notifications.data?.notifications.map((n: Notification) => (
           <div
@@ -114,12 +115,12 @@ export default function NotificationsPage() {
                     </span>
                     <span>{fmtTime(n.posted_at)}</span>
                     {n.is_sensitive && (
-                      <span className="badge badge-warning badge-sm">sensitive</span>
+                      <span className="badge badge-warning badge-sm">{t("notif.sensitive")}</span>
                     )}
                   </div>
                   <div className="mt-1 font-medium">{n.title}</div>
                   <div className="text-sm opacity-80">
-                    {n.is_sensitive ? <em>(content hidden)</em> : n.content}
+                    {n.is_sensitive ? <em>{t("notif.hidden")}</em> : n.content}
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 items-end">
@@ -131,7 +132,7 @@ export default function NotificationsPage() {
                       }
                       disabled={markRead.isPending}
                     >
-                      Mark read
+                      {t("notif.mark_read")}
                     </button>
                   )}
                   <button
@@ -140,9 +141,9 @@ export default function NotificationsPage() {
                       dismiss.mutate({ device_id: n.device_id, id: n.id })
                     }
                     disabled={dismiss.isPending}
-                    title="Sends notification.dismissed to the device"
+                    title={t("notif.dismiss_title")}
                   >
-                    {dismiss.isPending ? "Dismissing…" : "Dismiss"}
+                    {dismiss.isPending ? t("notif.dismissing") : t("notif.dismiss")}
                   </button>
                 </div>
               </div>

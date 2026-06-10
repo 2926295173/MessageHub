@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────┐
 │  Trusted:                                   │
-│    • Desktop daemon host (user's machine)   │
+│    • Message-center host (user's machine)   │
 │    • User's local network (LAN)             │
 │    • User's Android device (post-pairing)   │
 │                                             │
@@ -30,7 +30,7 @@ PhoneBridge has **no cloud component**. All traffic stays on the LAN. The threat
 | Call log (numbers, durations)        | Medium            | Desktop SQLite                            |
 | Device long-term private key         | **Critical**      | Android Keystore, Desktop `*.key.pem` (encrypted at rest in MVP if possible) |
 | Desktop TLS private key              | **Critical**      | Desktop `*.key.pem`                       |
-| Pairing 6-digit code                 | Transient (30s)   | In-memory only on both sides              |
+| Pairing 4-digit code                 | Transient (30s)   | In-memory only on both sides              |
 | Session shared secret (HKDF)         | High              | In-memory only                            |
 
 ## 3. Adversary classes
@@ -50,9 +50,9 @@ PhoneBridge has **no cloud component**. All traffic stays on the LAN. The threat
 2. **Authenticity:** Each side proves possession of the long-term private key during the TLS handshake. A device cannot impersonate another.
 3. **Replay protection:** TLS 1.2+ prevents frame replay at the transport layer. Application-level replay is bounded by message `id` de-duplication for the SMS request/result round-trip.
 4. **Pairing MITM resistance:** A MITM who can intercept all traffic between Desktop and Android during the 30s pairing window still cannot complete pairing because:
-   - The 6-digit code is derived from the ECDH shared secret, and the code is **only shown to the user on the phone**.
-   - A 6-digit code has 1/1,000,000 entropy; the user confirms visually, defeating automated MITM. Brute-forcing 1M codes in 30s against an honest device is infeasible.
-5. **Revocation:** Removing a device deletes its pinned cert and key. The daemon will refuse any subsequent handshake presenting the old cert.
+   - The 4-digit code is derived from the ECDH shared secret, and the code is **only shown to the user on the phone**.
+   - A 4-digit code has 1/10,000 entropy; the user confirms visually, defeating automated MITM. The 30-second window limits the brute-force space an attacker can probe via relay, but the primary defense is the user's eyes, not the entropy.
+5. **Revocation:** Removing a device deletes its pinned cert and key. The message-center will refuse any subsequent handshake presenting the old cert.
 6. **Defense in depth:** Even with a compromised link, missing/expired codes, mismatched fingerprints, or repeated pairing attempts trigger explicit failure states and audit log entries.
 
 ## 5. Mitigations in detail
@@ -88,7 +88,7 @@ Notifications flagged `isSensitive=true` (e.g. apps using `FLAG_NO_PEEK`) are st
 
 ### 5.6 Log and audit
 
-The daemon writes a structured audit log (`audit_log` table + rolling file) for:
+The message-center writes a structured audit log (`audit_log` table + rolling file) for:
 
 - Pairing start / success / failure / cancellation
 - Device connect / disconnect
@@ -104,7 +104,7 @@ Logs do **not** include notification content, SMS bodies, or call audio. They in
 |---------------------------------------------------|-------------------------------------------------------------|
 | Local privileged attacker on desktop              | Assumes host integrity. A compromised host can read SQLite directly. |
 | Compromised Android system                       | The notification listener sees everything the OS surfaces. Trusting the Android platform is fundamental. |
-| Side-channel on the 6-digit code (shoulder surf) | User responsibility; 30s window.                            |
+| Side-channel on the 4-digit code (shoulder surf) | User responsibility; 30s window.                            |
 | DoS against the desktop port                     | Mitigated by mDNS discovery + LAN boundary. If a hostile peer is on LAN, the user can disable `discovery_enabled` in config. |
 | LAN-wide Wi-Fi sniffing without mTLS              | Mitigated by TLS 1.2+; modern cipher suites provide AEAD.   |
 | Replay of `sms.send.request` after desktop reboot | Bounded by `request_id` (envelope id) — Android ignores duplicate `id`s. |
@@ -128,5 +128,5 @@ A compromised cert (e.g. phone backup restored to a different device) is handled
 ## 9. Incident response
 
 - **Suspected MITM during pairing:** abort the pairing attempt. Both sides discard ephemeral state. No long-term keys are exposed because they are only generated after `pair.complete`.
-- **Suspected key compromise:** unpair the device from the desktop settings page. The daemon deletes the cert + key, broadcasts an mDNS refresh, and refuses reconnects.
+- **Suspected key compromise:** unpair the device from the desktop settings page. The message-center deletes the cert + key, broadcasts an mDNS refresh, and refuses reconnects.
 - **Stolen phone:** same as compromised key. Use the desktop web console to unpair the device remotely (the next time the phone comes online, the WS is rejected and the user is prompted to re-pair).

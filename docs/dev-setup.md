@@ -6,7 +6,7 @@
 
 | Component       | Version  | Where installed                         | Why                                 |
 |-----------------|----------|------------------------------------------|-------------------------------------|
-| Rust (stable)   | ≥ 1.78   | `rustup`                                 | Daemon + types                      |
+| Rust (stable)   | ≥ 1.78   | `rustup`                                 | message-center + types              |
 | `cargo`         | bundled  | with rustup                              | Build, test, lint                   |
 | Node.js         | ≥ 20.x   | system / nvm                             | Web console build                   |
 | npm             | bundled  | —                                        | Dependency installer                |
@@ -23,27 +23,27 @@ This host already has Rust 1.95, Node (verify with `node --version`), JDK 21, An
 # From repo root
 cd /root/mykdeconnect
 
-# 1. Prepare daemon runtime dirs
+# 1. Prepare runtime dirs
 bash scripts/setup.sh
 # Creates:
 #   ~/.config/phonebridge/config.toml         (sample)
 #   ~/.local/share/phonebridge/                (db, certs, logs)
 
-# 2. Build the web console (M1 will embed this into the daemon)
+# 2. Build the web console (M1 will embed this into the message-center)
 cd frontend
 npm install
-npm run build      # writes frontend/out/  (consumed by phonebridge-daemon at build time)
+npm run build      # writes frontend/out/  (consumed by message-center at build time)
 cd ..
 
-# 3. Build the daemon
+# 3. Build the message-center
 cargo build
 # 4. Run it
-cargo run -p phonebridge-daemon
+cargo run -p message-center
 # → listens on https://0.0.0.0:8443
 # → https://localhost:8443/console/  (web UI)
 # → https://localhost:8443/api/v1/health  (REST health)
 
-# 5. Build the Android client (M4+)
+# 5. Build the Android agent (M4+)
 cd android
 echo "sdk.dir=/opt/android-sdk" > local.properties
 ./gradlew :app:assembleDebug
@@ -52,14 +52,14 @@ echo "sdk.dir=/opt/android-sdk" > local.properties
 
 ## 3. Per-component workflows
 
-### 3.1 Desktop daemon
+### 3.1 Message center (Rust)
 
 ```bash
 # Run with default config
-cargo run -p phonebridge-daemon
+cargo run -p message-center
 
 # Run with custom config
-cargo run -p phonebridge-daemon -- --config /path/to/config.toml
+cargo run -p message-center -- --config /path/to/config.toml
 
 # Run unit + integration tests
 cargo test --workspace
@@ -73,6 +73,11 @@ cargo fmt --all -- --check
 
 ```toml
 [server]
+# 8443 is the HTTPS-convention port (recommended for TLS mode).
+# When you start the message-center with `--no-tls` (plain HTTP, dev
+# only), the binary auto-shifts this default to "0.0.0.0:8080" — the
+# HTTP-convention port — unless you pass `--bind` to override. Pin
+# the port here to lock the choice regardless of mode.
 bind = "0.0.0.0:8443"
 data_dir = "~/.local/share/phonebridge"
 
@@ -86,7 +91,7 @@ db_path = ""
 
 [logging]
 level = "info"     # trace, debug, info, warn, error
-file = "~/.local/share/phonebridge/daemon.log"
+file = "~/.local/share/phonebridge/message-center.log"
 ```
 
 ### 3.2 Web console
@@ -94,8 +99,8 @@ file = "~/.local/share/phonebridge/daemon.log"
 ```bash
 cd frontend
 npm run dev        # dev server on http://localhost:3000/console
-# Daemon must be running on :8443; CORS allows localhost:3000
-npm run build      # writes out/ which the daemon embeds
+# message-center must be running on :8443; CORS allows localhost:3000
+npm run build      # writes out/ which the message-center embeds
 npm run lint
 npm run type-check
 ```
@@ -144,7 +149,7 @@ If the phone is not running an `adb` daemon, enable USB debugging and either:
 | `gradle` errors with "SDK location not found" | `local.properties` missing | `echo "sdk.dir=/opt/android-sdk" > android/local.properties`. |
 | `adb` shows `unauthorized` | Device needs ADB auth tap | Tap "Allow USB debugging" on the device. |
 | NSD browse never returns devices on MIUI | Battery saver killing the foreground service | Settings → Apps → PhoneBridge → Battery → "No restrictions". |
-| mDNS browse works but TLS handshake fails | Daemon cert regenerated, phone still has old pin | Open PhoneBridge Android app → Settings → "Forget daemon" and re-pair. |
+| mDNS browse works but TLS handshake fails | message-center cert regenerated, phone still has old pin | Open PhoneBridge Android app → Settings → "Forget desktop" and re-pair. |
 
 ## 5. Network layout
 
@@ -163,7 +168,8 @@ For testing across VLANs or in environments with AP isolation, use the manual IP
 
 Once a tag is pushed, the CI workflow builds:
 
-- `phonebridge-daemon` (Linux x86_64 + aarch64, macOS x86_64 + aarch64, Windows x86_64)
+- `message-center` (Linux x86_64 + aarch64, macOS x86_64 + aarch64, Windows x86_64)
+- `phonebridge-display` (Linux x86_64 + aarch64, macOS x86_64 + aarch64, Windows x86_64)
 - `phonebridge-android` (universal APK + split per ABI)
 
 Artifacts are attached to the GitHub release.

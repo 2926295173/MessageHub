@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! Self-signed X.509 certificate generation using `rcgen` (ring backend).
 //!
 //! M1 wraps `rcgen::generate_simple_self_signed`. M2 may add richer params

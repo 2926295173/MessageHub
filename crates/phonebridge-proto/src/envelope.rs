@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! The `Envelope` is the single wire format for all PhoneBridge messages.
 //!
 //! ```text
@@ -34,7 +40,7 @@ pub enum MessageType {
     /// Start pairing.
     #[serde(rename = "device.pair.request")]
     DevicePairRequest,
-    /// Pairing challenge (ephemeral pubkey + 6-digit code).
+    /// Pairing challenge (ephemeral pubkey + 4-digit code).
     #[serde(rename = "device.pair.challenge")]
     DevicePairChallenge,
     /// User accepted/rejected the pairing code.
@@ -244,6 +250,7 @@ mod tests {
                 port: Some(8443),
                 manufacturer: Some("Google".into()),
                 model: Some("Pixel 8 Pro".into()),
+                hardware_id: None,
             },
         )
         .unwrap();

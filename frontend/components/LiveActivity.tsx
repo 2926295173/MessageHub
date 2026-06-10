@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, wsUrl } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 interface ConsoleEvent {
   kind: string;
@@ -16,27 +17,37 @@ function fmtTime(ms: number): string {
   return new Date(ms).toLocaleTimeString();
 }
 
-function summarize(evt: ConsoleEvent): string {
+function summarize(evt: ConsoleEvent, t: (k: any, v?: any) => string): string {
   switch (evt.kind) {
     case "console.hello":
-      return `connected (${evt.summary.server ?? "daemon"} v${evt.summary.version ?? "?"})`;
+      return t("live.ev_console_hello", {
+        server: evt.summary.server ?? "daemon",
+        version: evt.summary.version ?? "?",
+      });
     case "device.hello":
-      return `device ${evt.summary.name ?? evt.device_id.slice(0, 8)} connected`;
+      return t("live.ev_device_hello", {
+        name: evt.summary.name ?? evt.device_id.slice(0, 8),
+      });
     case "notification.received":
-      return `[${evt.summary.app_name ?? evt.summary.package}] ${evt.summary.title}`;
+      return t("live.ev_notif", {
+        app: evt.summary.app_name ?? evt.summary.package,
+        title: evt.summary.title,
+      });
     case "sms.received":
-      return `SMS from ${evt.summary.address}: ${evt.summary.body}`;
+      return t("live.ev_sms", { addr: evt.summary.address, body: evt.summary.body });
     case "call.incoming":
+      return t("live.ev_call_incoming");
     case "call.state":
-      return `call ${evt.kind === "call.incoming" ? "incoming" : "state change"}`;
+      return t("live.ev_call_state");
     case "device.unpair":
-      return "device unpaired";
+      return t("live.ev_unpair");
     default:
       return evt.kind;
   }
 }
 
 export function LiveActivity() {
+  const t = useT();
   const [events, setEvents] = useState<ConsoleEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const dashboard = useQuery({
@@ -81,31 +92,34 @@ export function LiveActivity() {
     <div className="card bg-base-200">
       <div className="card-body p-4">
         <div className="flex items-center justify-between">
-          <h2 className="card-title text-base">Live activity</h2>
+          <h2 className="card-title text-base">{t("live.title")}</h2>
           <span
             className={`badge badge-sm ${
               connected ? "badge-success" : "badge-ghost"
             }`}
           >
-            {connected ? "live" : "disconnected"}
+            {connected ? t("live.live") : t("live.disconnected")}
           </span>
         </div>
         <p className="text-xs opacity-60">
-          Streamed via <code>/ws/console</code>.{" "}
+          {t("live.streamed_via")}
           {dashboard.data && (
             <span>
-              {dashboard.data.online_devices}/{dashboard.data.paired_devices} online.
+              {" "}{t("live.online_part", {
+                online: dashboard.data.online_devices,
+                paired: dashboard.data.paired_devices,
+              })}
             </span>
           )}
         </p>
         <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto text-sm">
           {events.length === 0 && (
-            <li className="opacity-50">No events yet. Connect an Android device to see notifications, SMS, and calls stream in here.</li>
+            <li className="opacity-50">{t("live.empty")}</li>
           )}
           {events.map((e, i) => (
             <li key={i} className="flex items-baseline gap-2 truncate">
               <span className="font-mono text-[10px] opacity-50">{fmtTime(e.timestamp)}</span>
-              <span className="truncate">{summarize(e)}</span>
+              <span className="truncate">{summarize(e, t)}</span>
             </li>
           ))}
         </ul>

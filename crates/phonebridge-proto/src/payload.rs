@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! All payload structs, plus the [`Payload`] enum that dispatches based on
 //! the message type.
 
@@ -29,6 +35,165 @@ pub struct DeviceHello {
     /// Optional: model name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Optional: stable per-physical-device identifier (Android
+    /// `Settings.Secure.ANDROID_ID` on the phone). Used by the
+    /// daemon to dedupe `device.hello` reconnects that come
+    /// with a regenerated `device_id` UUID — the `device_id` is
+    /// wiped on `pm clear` because the Keystore is wiped, but
+    /// `ANDROID_ID` survives `pm clear` (it is per app-signing
+    /// key + per user) so it can be used to recognise the same
+    /// physical handset returning to the LAN.
+    ///
+    /// Optional for backward compatibility with v1 clients that
+    /// never sent it. The daemon falls back to deduping on
+    /// `device_id` when missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_id: Option<String>,
+}
+
+// ============================================================================
+// Display endpoint
+// ============================================================================
+//
+// The display endpoint (`phonebridge-display`) is a separate Rust
+// binary that subscribes to events over `/ws/display` and shows
+// them on the host's OS notification surface. The protocol
+// is full-duplex: the server pushes `DisplayEvent` lines
+// (notification received, SMS, call, …) and the client can
+// send back `DisplayAction` lines (SMS quick reply, mark
+// notification read, answer/hang up a call). The same WS
+// connection carries both directions; the `kind` field
+// disambiguates which direction a line belongs to.
+//
+// Keeping both shapes here (rather than one envelope with a
+// `direction` flag) keeps the parsing trivial on both sides:
+// server just deserializes into `DisplayEvent` or `DisplayAction`
+// based on the `kind` value, and the same line-format is
+// reused in either direction.
+// ============================================================================
+
+/// `DisplayEvent` — server → client push. One line per event.
+///
+/// Carries the FULL deserialized payload (`notification.received`
+/// body, `sms.received` body, `call.incoming` number, …)
+/// because the desktop notifications need them — the existing
+/// `ConsoleEvent.summary` field is too lossy to drive a reply
+/// text input.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DisplayEvent {
+    /// Event kind. Server-only namespaced: `notification.received`,
+    /// `sms.received`, `sms.send.result`, `call.incoming`,
+    /// `call.state`, `device.hello`, `device.unpair`,
+    /// `phone.offline`, `action.result`. The client MUST
+    /// ignore kinds it does not understand.
+    pub kind: String,
+
+    /// The phone that originated this event.
+    pub device_id: uuid::Uuid,
+
+    /// The original envelope id; the display endpoint uses this
+    /// to correlate a quick-reply action back to the original
+    /// notification (and to deduplicate after a restart).
+    pub envelope_id: uuid::Uuid,
+
+    /// Unix epoch milliseconds.
+    pub timestamp: i64,
+
+    /// Full parsed payload as JSON (e.g.
+    /// `{"package":"com.wechat","title":"...","content":"..."}`).
+    /// We use `serde_json::Value` rather than a typed enum so
+    /// we don't have to touch this struct every time the
+    /// protocol grows a new event kind.
+    pub payload: serde_json::Value,
+
+    /// Pre-extracted short summary used as the notification
+    /// title in the OS UI when the full `payload` would be too
+    /// verbose (e.g. SMS sender, call number).
+    #[serde(default)]
+    pub summary: serde_json::Value,
+}
+
+/// `DisplayAction` — client → server command. One line per action.
+///
+/// Every action is bound to a `device_id` and an `envelope_id`
+/// so the daemon can do context lookups (e.g. "which
+/// `sms.received` envelope is the user replying to?") and
+/// can route the command to the right connected phone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DisplayAction {
+    /// Action kind. Client-only namespaced:
+    /// - `sms.reply`              (quick-reply to an SMS)
+    /// - `notification.read`     (mark notification as read)
+    /// - `notification.dismiss`  (dismiss on the phone)
+    /// - `call.answer`           (pick up an incoming call)
+    /// - `call.end`              (hang up the active call)
+    pub kind: String,
+
+    /// The original `envelope_id` from the `DisplayEvent` the
+    /// user is acting on. Used for logging / deduplication.
+    pub envelope_id: uuid::Uuid,
+
+    /// The phone this action targets. The daemon refuses the
+    /// action if the device is not currently connected.
+    pub device_id: uuid::Uuid,
+
+    // -- sms.reply fields --
+    /// Target address (E.164 or as the user typed). Required
+    /// when `kind == "sms.reply"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+
+    /// Reply text. Required when `kind == "sms.reply"`.
+    /// Empty string is treated as a no-op (the daemon rejects
+    /// empty bodies at the phone level anyway).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+
+    // -- call.answer / call.end fields --
+    /// Optional call id (when the original `DisplayEvent`
+    /// carried one). The daemon falls back to the active call
+    /// on the device if missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+}
+
+/// `ActionResultEvent` — server → client reply, fired by the
+/// daemon after a `DisplayAction` has been processed. Carries
+/// enough context for the display endpoint to surface a
+/// success / failure toast (e.g. "SMS sent to 13800138000" or
+/// "Failed: phone offline").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionResultEvent {
+    /// Always `action.result`.
+    pub kind: String,
+
+    /// The envelope_id of the `DisplayAction` we are
+    /// responding to. Display endpoints use this to suppress
+    /// duplicate toasts if multiple display endpoints are
+    /// active in parallel.
+    pub request_envelope_id: uuid::Uuid,
+
+    /// The phone this action targeted.
+    pub device_id: uuid::Uuid,
+
+    /// The action kind that was attempted (mirrors the
+    /// original `DisplayAction.kind`).
+    pub action_kind: String,
+
+    /// Whether the action was accepted by the daemon.
+    /// `false` here typically means "phone not connected" or
+    /// "device rejected the action" — see `message` for the
+    /// specific reason.
+    pub ok: bool,
+
+    /// Human-readable reason. Empty on success; the failure
+    /// code (e.g. `phone_offline`, `bad_request`, `phone_error`)
+    /// on failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
+    /// Unix epoch milliseconds when the action completed.
+    pub timestamp: i64,
 }
 
 /// `device.heartbeat` payload (all fields optional).
@@ -75,7 +240,7 @@ pub struct PairRequest {
 pub struct PairChallenge {
     /// Base64 of the responder's ephemeral ECDH P-256 public key.
     pub ephemeral_pubkey: String,
-    /// 6-digit decimal code derived from the shared secret.
+    /// 4-digit decimal code derived from the shared secret.
     pub code: String,
     /// Unix epoch ms after which this code is invalid.
     pub expires_at: i64,
@@ -313,6 +478,7 @@ mod tests {
             port: Some(8443),
             manufacturer: None,
             model: None,
+            hardware_id: None,
         };
         let j = serde_json::to_value(&p).unwrap();
         assert_eq!(j["name"], "Pixel");

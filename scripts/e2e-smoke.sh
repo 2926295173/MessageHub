@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# End-to-end smoke test: start the daemon in the background, then run
-# `phonebridge-daemon --pair-with 127.0.0.1:8443` to verify the WS layer.
+# End-to-end smoke test: start the message-center in the background, then run
+# `message-center --pair-with 127.0.0.1:8443` to verify the WS layer.
 #
 # This validates:
-#   - Daemon starts and listens on 8443 (TLS)
+#   - message-center starts and listens on 8443 (TLS)
 #   - mDNS advertises
 #   - WS upgrade at /ws works
 #   - device.hello is processed and a Responder state machine is registered
@@ -20,12 +20,12 @@ CONFIG_DIR="${PHONEBRIDGE_CONFIG_DIR:-/tmp/pb-e2e-config}"
 CLI_DATA_DIR="${PHONEBRIDGE_DATA_DIR:-/tmp/pb-e2e-cli-data}"
 CLI_CONFIG_DIR="${PHONEBRIDGE_CONFIG_DIR:-/tmp/pb-e2e-cli-config}"
 LOG="/tmp/pb-e2e.log"
-DAEMON_PID=""
+CENTER_PID=""
 
 cleanup() {
-    if [ -n "$DAEMON_PID" ]; then
-        kill "$DAEMON_PID" 2>/dev/null || true
-        wait "$DAEMON_PID" 2>/dev/null || true
+    if [ -n "$CENTER_PID" ]; then
+        kill "$CENTER_PID" 2>/dev/null || true
+        wait "$CENTER_PID" 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
@@ -33,36 +33,36 @@ trap cleanup EXIT
 # Clean previous data.
 rm -rf "$DATA_DIR" "$CONFIG_DIR" "$CLI_DATA_DIR" "$CLI_CONFIG_DIR"
 
-echo "=== setup daemon data dir ==="
+echo "=== setup message-center data dir ==="
 PHONEBRIDGE_DATA_DIR="$DATA_DIR" PHONEBRIDGE_CONFIG_DIR="$CONFIG_DIR" \
     bash "$REPO_ROOT/scripts/setup.sh" >/dev/null
 
-echo "=== start daemon (background) ==="
+echo "=== start message-center (background) ==="
 (
     cd "$REPO_ROOT"
     PHONEBRIDGE_DATA_DIR="$DATA_DIR" PHONEBRIDGE_CONFIG_DIR="$CONFIG_DIR" \
-        RUST_LOG=phonebridge_daemon=info,phonebridge_net=debug \
-        cargo run --quiet -p phonebridge-daemon > "$LOG" 2>&1
+        RUST_LOG=message_center=info,phonebridge_net=debug \
+        cargo run --quiet -p message-center > "$LOG" 2>&1
 ) &
-DAEMON_PID=$!
+CENTER_PID=$!
 
-# Wait for the daemon to be ready.
-echo "=== wait for daemon ==="
+# Wait for the message-center to be ready.
+echo "=== wait for message-center ==="
 for i in 1 2 3 4 5 6 7 8 9 10 15 20; do
     sleep 1
     if grep -q "listening (HTTPS / TLS)" "$LOG" 2>/dev/null; then
-        echo "  daemon ready after ${i}s"
+        echo "  message-center ready after ${i}s"
         break
     fi
-    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
-        echo "  daemon died; tail of log:" >&2
+    if ! kill -0 "$CENTER_PID" 2>/dev/null; then
+        echo "  message-center died; tail of log:" >&2
         tail -30 "$LOG" >&2
         exit 1
     fi
 done
 
 if ! grep -q "listening (HTTPS / TLS)" "$LOG"; then
-    echo "  daemon did not become ready in time" >&2
+    echo "  message-center did not become ready in time" >&2
     tail -30 "$LOG" >&2
     exit 1
 fi
@@ -84,15 +84,15 @@ echo "$CERT" | grep -q '"fingerprint"' || { echo "cert endpoint failed"; exit 1;
 echo "=== pair_cli (fake android client) ==="
 PHONEBRIDGE_DATA_DIR="$CLI_DATA_DIR" PHONEBRIDGE_CONFIG_DIR="$CLI_CONFIG_DIR" \
     RUST_LOG=info \
-    timeout 25 cargo run --quiet -p phonebridge-daemon -- --pair-with 127.0.0.1:8443 2>&1 | tail -8
+    timeout 25 cargo run --quiet -p message-center -- --pair-with 127.0.0.1:8443 2>&1 | tail -8
 
-# Verify the daemon logged the hello.
+# Verify the message-center logged the hello.
 if ! grep -q "ws: device.hello received" "$LOG"; then
-    echo "  FAIL: daemon did not log the hello" >&2
+    echo "  FAIL: message-center did not log the hello" >&2
     tail -10 "$LOG" >&2
     exit 1
 fi
-echo "  PASS: daemon accepted device.hello"
+echo "  PASS: message-center accepted device.hello"
 
 echo
 echo "=== E2E SMOKE OK ==="

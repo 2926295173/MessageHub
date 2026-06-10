@@ -1,9 +1,15 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! End-to-end pairing integration test.
 //!
 //! Drives a full pairing handshake between an `Initiator` and a `Responder`
 //! over a tokio mpsc channel. This isolates the state-machine behavior
 //! from the WebSocket/TLS stack (which is covered by separate tests in the
-//! daemon and by the e2e smoke script).
+//! message-center and by the e2e smoke script).
 //!
 //! This test is the wire-level smoke for the protocol: every message type
 //! in the pairing flow is exercised, and the final outcome is verified
@@ -69,7 +75,7 @@ async fn full_pairing_handshake_over_mpsc() {
         assert_eq!(env.message_type, MessageType::DevicePairRequest);
         responder.on_request(&env).unwrap();
         let code = responder.code().unwrap().to_string();
-        assert_eq!(code.len(), 6);
+        assert_eq!(code.len(), 4);
 
         // Send pair.challenge.
         let challenge = responder.build_challenge_envelope(android_id).unwrap();
@@ -106,7 +112,7 @@ async fn full_pairing_handshake_over_mpsc() {
 
     // Both sides should agree on the peer's cert.
     // The initiator's peer is the android (the responder in this test).
-    // The responder's peer is the daemon (the initiator in this test).
+    // The responder's peer is the message-center (the initiator in this test).
     assert_eq!(init_outcome.peer_device_id, android_id);
     assert!(init_outcome.peer_cert_pem.contains("BEGIN CERTIFICATE"));
     assert_eq!(init_outcome.peer_fingerprint.matches(':').count(), 31);

@@ -1,5 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! Registry of currently-connected devices, for sending envelopes
-//! downstream (daemon → android).
+//! downstream (message-center → android).
 //!
 //! Each connection that completes `device.hello` registers an outbound
 //! channel. The channel is removed when the connection closes.
@@ -114,6 +120,7 @@ mod tests {
                 port: None,
                 manufacturer: None,
                 model: None,
+                hardware_id: None,
             },
         )
         .unwrap()

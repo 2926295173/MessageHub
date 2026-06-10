@@ -1,10 +1,16 @@
-//! Networking surface for the daemon.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
+//! Networking surface for the message-center.
 //!
 //! - [`mdns`]: browse for and advertise `_phonebridge._tcp` services.
 //! - [`pairing`]: pairing state machine for both initiator and responder roles.
 //! - [`registry`]: tracks currently-connected devices for downstream
-//!   sends (daemon → android).
-//! - [`ws_handler`]: per-connection envelope dispatcher (used by the daemon).
+//!   sends (message-center → android).
+//! - [`ws_handler`]: per-connection envelope dispatcher (used by the message-center).
 //! - [`tls_pinning`]: validate an incoming WebSocket connection's client cert
 //!   against a stored fingerprint.
 
@@ -20,8 +26,8 @@ pub mod ws_handler;
 pub use pairing::{Initiator, PairingError, PairingOutcome, Responder};
 pub use registry::{DeviceRegistry, DownstreamError};
 pub use ws_handler::{
-    ConnectionSink, DeviceSession, NoopSink, PairedSession, PairingMap, SinkError, UnpairedSession,
-    WsContext, WsSink,
+    ConnectionSink, DeviceSession, NoopSink, PairedSession, PairingMap, PendingIncoming,
+    PendingIncomingMap, SinkError, UnpairedSession, WsContext, WsSink,
 };
 
 /// A discovered device on the LAN (alias for the mDNS-discovered form).

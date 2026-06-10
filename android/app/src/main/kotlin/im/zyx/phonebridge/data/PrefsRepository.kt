@@ -4,7 +4,9 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -87,12 +89,37 @@ class PrefsRepository @Inject constructor(
     private val keyDeviceId = stringPreferencesKey("device_id")
     private val keyIdentityPem = stringPreferencesKey("identity_pem")
     private val keyIdentityFingerprint = stringPreferencesKey("identity_fingerprint")
+    // Settings
+    private val keyDeviceName = stringPreferencesKey("device_name")
+    private val keyTheme = stringPreferencesKey("theme_mode")
+    private val keyPersistentNotif = booleanPreferencesKey("persistent_notification")
+    private val keyTrustedSsids = stringPreferencesKey("trusted_ssids_csv")
+    private val keyManualDesktops = stringPreferencesKey("manual_desktops_json")
+    private val keyOnboarded = booleanPreferencesKey("onboarded_v1")
+    // Keep-alive / hardening
+    private val keyBatteryOptPrompted = booleanPreferencesKey("battery_opt_prompted_v1")
+    private val keyFloatingEnabled = booleanPreferencesKey("floating_console_enabled")
+    private val keyFloatingX = intPreferencesKey("floating_console_x")
+    private val keyFloatingY = intPreferencesKey("floating_console_y")
+    private val keySuppressedAlerts = stringPreferencesKey("suppressed_alerts_csv")
 
     val desktopHost: Flow<String?> = context.prefsDataStore.data.map { it[keyDesktopHost] }
     val desktopPort: Flow<String?> = context.prefsDataStore.data.map { it[keyDesktopPort] }
     val fingerprint: Flow<String?> = context.prefsDataStore.data.map { it[keyFingerprint] }
     val deviceId: Flow<String?> = context.prefsDataStore.data.map { it[keyDeviceId] }
     val identityFingerprint: Flow<String?> = context.prefsDataStore.data.map { it[keyIdentityFingerprint] }
+    val deviceName: Flow<String?> = context.prefsDataStore.data.map { it[keyDeviceName] }
+    val themeMode: Flow<String?> = context.prefsDataStore.data.map { it[keyTheme] }
+    val persistentNotif: Flow<Boolean> = context.prefsDataStore.data.map { it[keyPersistentNotif] ?: true }
+    val trustedSsidsCsv: Flow<String?> = context.prefsDataStore.data.map { it[keyTrustedSsids] }
+    val manualDesktopsJson: Flow<String?> = context.prefsDataStore.data.map { it[keyManualDesktops] }
+    val onboarded: Flow<Boolean> = context.prefsDataStore.data.map { it[keyOnboarded] ?: false }
+    val batteryOptPrompted: Flow<Boolean> = context.prefsDataStore.data.map { it[keyBatteryOptPrompted] ?: false }
+    val floatingEnabled: Flow<Boolean> = context.prefsDataStore.data.map { it[keyFloatingEnabled] ?: false }
+    val floatingPos: Flow<Pair<Int, Int>> = context.prefsDataStore.data.map { p ->
+        (p[keyFloatingX] ?: -1) to (p[keyFloatingY] ?: -1)
+    }
+    val suppressedAlertsCsv: Flow<String?> = context.prefsDataStore.data.map { it[keySuppressedAlerts] }
 
     suspend fun setDesktop(host: String, port: Int) {
         context.prefsDataStore.edit {
@@ -103,6 +130,61 @@ class PrefsRepository @Inject constructor(
 
     suspend fun setFingerprint(hex: String) {
         context.prefsDataStore.edit { it[keyFingerprint] = hex }
+    }
+
+    suspend fun setDeviceName(name: String?) {
+        context.prefsDataStore.edit {
+            val v = name?.trim().orEmpty()
+            if (v.isEmpty()) it.remove(keyDeviceName) else it[keyDeviceName] = v
+        }
+    }
+
+    suspend fun setThemeMode(mode: String) {
+        context.prefsDataStore.edit { it[keyTheme] = mode }
+    }
+
+    suspend fun setPersistentNotif(enabled: Boolean) {
+        context.prefsDataStore.edit { it[keyPersistentNotif] = enabled }
+    }
+
+    suspend fun setTrustedSsidsCsv(csv: String?) {
+        context.prefsDataStore.edit {
+            val v = csv?.trim().orEmpty()
+            if (v.isEmpty()) it.remove(keyTrustedSsids) else it[keyTrustedSsids] = v
+        }
+    }
+
+    suspend fun setManualDesktopsJson(json: String?) {
+        context.prefsDataStore.edit {
+            val v = json?.trim().orEmpty()
+            if (v.isEmpty()) it.remove(keyManualDesktops) else it[keyManualDesktops] = v
+        }
+    }
+
+    suspend fun setOnboarded(v: Boolean) {
+        context.prefsDataStore.edit { it[keyOnboarded] = v }
+    }
+
+    suspend fun setBatteryOptPrompted(v: Boolean) {
+        context.prefsDataStore.edit { it[keyBatteryOptPrompted] = v }
+    }
+
+    suspend fun setFloatingEnabled(enabled: Boolean) {
+        context.prefsDataStore.edit { it[keyFloatingEnabled] = enabled }
+    }
+
+    suspend fun setFloatingPos(x: Int, y: Int) {
+        context.prefsDataStore.edit {
+            it[keyFloatingX] = x
+            it[keyFloatingY] = y
+        }
+    }
+
+    suspend fun setSuppressedAlertsCsv(csv: String?) {
+        context.prefsDataStore.edit {
+            val v = csv?.trim().orEmpty()
+            if (v.isEmpty()) it.remove(keySuppressedAlerts) else it[keySuppressedAlerts] = v
+        }
     }
 
     private suspend fun saveCert(pem: String, fingerprint: String) {

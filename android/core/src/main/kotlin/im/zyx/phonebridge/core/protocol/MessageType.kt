@@ -2,7 +2,7 @@ package im.zyx.phonebridge.core.protocol
 
 /**
  * The 24 message types in protocol v1, as the exact wire strings used
- * by the Rust daemon. Mirror
+ * by the Rust message-center. Mirror
  * `crates/phonebridge-proto/src/envelope.rs::MessageType::as_str`.
  */
 object MessageType {

@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! Row structs that mirror the SQL schema.
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +29,13 @@ pub struct DeviceRow {
     pub last_seen: i64,
     /// Whether the device is paired (vs. discovered but unpaired).
     pub paired: bool,
+    /// Stable per-physical-device identifier (Android
+    /// `Settings.Secure.ANDROID_ID` on the phone). Used to dedupe
+    /// reconnects that come with a freshly-generated `device_id`
+    /// UUID — NULL for legacy rows created before the column
+    /// existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_id: Option<String>,
 }
 
 // ============================================================================

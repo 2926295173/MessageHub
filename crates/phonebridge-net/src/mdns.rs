@@ -1,4 +1,10 @@
-//! mDNS service: browse for `_phonebridge._tcp` and advertise the daemon.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
+//! mDNS service: browse for `_phonebridge._tcp` and advertise the message-center.
 //!
 //! We use `mdns-sd` 0.11. Its API is sync, but it spawns its own threads
 //! internally. We bridge the events into async via a `tokio::sync::mpsc`.

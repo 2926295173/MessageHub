@@ -2,66 +2,91 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useLocale, useT, type Locale } from "@/lib/i18n";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
+/**
+ * Settings — language picker + audit log. The daemon's identity
+ * (device id, name, fingerprint, public key) intentionally lives
+ * on the About page instead of here, so a user who shares the
+ * Settings screen for support purposes doesn't accidentally show
+ * the long-term TLS fingerprint to whoever they're screensharing
+ * with.
+ */
 export default function SettingsPage() {
-  const cert = useQuery({ queryKey: ["cert"], queryFn: () => api.cert() });
-  const audit = useQuery({ queryKey: ["audit"], queryFn: () => api.audit({ limit: 50 }) });
+  const t = useT();
+  const { locale, setLocale, available } = useLocale();
+  const audit = useQuery({
+    queryKey: ["audit"],
+    queryFn: () => api.audit({ limit: 50 }),
+  });
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-base-content/60">
-          This daemon's identity and recent activity.
-        </p>
+        <h1 className="text-2xl font-semibold">{t("settings.title")}</h1>
+        <p className="text-sm text-base-content/60">{t("settings.subtitle")}</p>
       </header>
 
+      {/* Language picker — the only setting on this page. */}
       <section className="card bg-base-200">
         <div className="card-body p-4">
-          <h2 className="card-title text-base">This daemon</h2>
-          {cert.data ? (
-            <dl className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-              <Field label="Device id" value={cert.data.device_id} mono />
-              <Field label="Name" value={cert.data.name} />
-              <Field label="Fingerprint" value={cert.data.fingerprint} mono />
-              <Field label="Public key" value={cert.data.public_key} mono />
-            </dl>
-          ) : (
-            <div className="text-sm opacity-60">Loading…</div>
-          )}
+          <h2 className="card-title text-base">{t("settings.language")}</h2>
+          <p className="text-sm text-base-content/60">{t("settings.language_hint")}</p>
+          <div className="mt-2 join">
+            {available.map((l) => {
+              const code = l as Locale;
+              const labelKey = (code === "zh" ? "lang.zh" : "lang.en") as
+                | "lang.zh"
+                | "lang.en";
+              return (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => setLocale(code)}
+                  className={`btn join-item btn-sm ${
+                    locale === code ? "btn-primary" : "btn-ghost"
+                  }`}
+                  aria-pressed={locale === code}
+                >
+                  {t(labelKey)}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
+      {/* Audit log — read-only, useful when triaging "why did X happen". */}
       <section className="card bg-base-200">
         <div className="card-body p-0">
           <div className="border-b border-base-300 p-3 text-sm font-semibold">
-            Recent audit log
+            {t("settings.audit_title")}
           </div>
           <table className="table table-zebra">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Event</th>
-                <th>Device</th>
-                <th>Detail</th>
+                <th>{t("settings.col.time")}</th>
+                <th>{t("settings.col.event")}</th>
+                <th>{t("settings.col.device")}</th>
+                <th>{t("settings.col.detail")}</th>
               </tr>
             </thead>
             <tbody>
               {audit.isLoading && (
                 <tr>
                   <td colSpan={4} className="text-center text-sm opacity-60">
-                    Loading…
+                    {t("settings.loading")}
                   </td>
                 </tr>
               )}
               {audit.data?.entries.length === 0 && (
                 <tr>
                   <td colSpan={4} className="text-center text-sm opacity-60">
-                    No entries yet.
+                    {t("settings.audit_empty")}
                   </td>
                 </tr>
               )}
@@ -81,15 +106,6 @@ export default function SettingsPage() {
           </table>
         </div>
       </section>
-    </div>
-  );
-}
-
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase opacity-50">{label}</dt>
-      <dd className={mono ? "break-all font-mono text-xs" : "text-sm"}>{value}</dd>
     </div>
   );
 }

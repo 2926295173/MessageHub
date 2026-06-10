@@ -12,7 +12,7 @@ over a persistent TLS WebSocket.
 | Foreground service owning the WebSocket | done |
 | mDNS browser (NsdManager) for `_phonebridge._tcp` | done |
 | TLS WebSocket client (Ktor 2 + OkHttp) | done |
-| Pairing state machine with ECDH P-256 + HKDF-SHA256 6-digit code | done |
+| Pairing state machine with ECDH P-256 + HKDF-SHA256 4-digit code | done |
 | Long-term identity in Android Keystore (`phonebridge.identity.v1`) | done |
 | TLS fingerprint pinning (stored + enforced) | done |
 | NotificationListenerService -> daemon | done |
@@ -84,7 +84,7 @@ android/
 2. `PairingScreen` calls `NsdRegistrar.discoverFirstDesktop()` which
    resolves a `_phonebridge._tcp` service.
 3. User taps **Generate code** → `PairingMachine.begin(...)` produces
-   a 6-digit code, sends `device.pair.request` (code travels in the
+   a 4-digit code, sends `device.pair.request` (code travels in the
    payload) to the desktop via the `BridgeService` (Foreground
    `connectedDevice`).
 4. User types the code on the desktop. The desktop sends

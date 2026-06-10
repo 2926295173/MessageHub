@@ -13,7 +13,7 @@
 ## 1. Required
 
 ### `INTERNET`
-- **Why:** WebSocket to the desktop daemon.
+- **Why:** WebSocket to the message-center.
 - **Risk:** None. Already granted at install time on all Android versions.
 - **OEM notes:** None.
 
@@ -142,7 +142,7 @@ When a feature is flaky, we document the manual workaround in the app's help scr
 
 - No analytics. No third-party SDKs. No crash reporter.
 - The notification listener only listens to the apps the user explicitly enabled the feature for (we do not silently start listening after install).
-- All data flows stay on the LAN. The daemon never opens an outbound connection to any remote host.
+- All data flows stay on the LAN. The message-center never opens an outbound connection to any remote host.
 - On unpair, all stored credentials (cert, key) are deleted from Android Keystore / DataStore.
 
 ---

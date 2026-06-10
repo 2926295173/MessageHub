@@ -3,12 +3,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, type Device, type Sms, type SmsConversation } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 function fmtTime(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
 export default function SmsPage() {
+  const t = useT();
   const qc = useQueryClient();
   const [deviceId, setDeviceId] = useState<string | "">("");
   const [selected, setSelected] = useState<string | null>(null);
@@ -57,10 +59,8 @@ export default function SmsPage() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">SMS</h1>
-          <p className="text-sm text-base-content/60">
-            Browse and send SMS via your Android devices.
-          </p>
+          <h1 className="text-2xl font-semibold">{t("sms.title")}</h1>
+          <p className="text-sm text-base-content/60">{t("sms.subtitle")}</p>
         </div>
         <select
           className="select select-bordered select-sm"
@@ -70,7 +70,7 @@ export default function SmsPage() {
             setSelected(null);
           }}
         >
-          <option value="">All devices</option>
+          <option value="">{t("sms.all_devices")}</option>
           {devices.data?.devices.map((d: Device) => (
             <option key={d.device_id} value={d.device_id}>
               {d.name}
@@ -80,15 +80,14 @@ export default function SmsPage() {
       </header>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Conversation list */}
         <div className="card bg-base-200">
           <div className="card-body p-0">
             <div className="border-b border-base-300 p-3 text-sm font-semibold">
-              Conversations ({conversations.data?.conversations.length ?? 0})
+              {t("sms.conversations", { n: conversations.data?.conversations.length ?? 0 })}
             </div>
             <ul className="max-h-[60vh] overflow-y-auto">
               {conversations.data?.conversations.length === 0 && (
-                <li className="p-4 text-sm opacity-60">No conversations yet.</li>
+                <li className="p-4 text-sm opacity-60">{t("sms.no_conversations")}</li>
               )}
               {conversations.data?.conversations.map((c) => (
                 <li key={c.address}>
@@ -110,18 +109,17 @@ export default function SmsPage() {
           </div>
         </div>
 
-        {/* Messages */}
         <div className="card bg-base-200 lg:col-span-2">
           <div className="card-body p-0">
             <div className="border-b border-base-300 p-3 text-sm font-semibold">
-              {selected ? `Conversation with ${selected}` : "Select a conversation"}
+              {selected ? `${t("sms.title")} · ${selected}` : t("sms.pick_conversation")}
             </div>
             <ul className="max-h-[50vh] space-y-1 overflow-y-auto p-3">
               {!selected && (
-                <li className="text-sm opacity-60">Pick a conversation on the left.</li>
+                <li className="text-sm opacity-60">{t("sms.no_conversation_selected")}</li>
               )}
               {messages.data?.messages.length === 0 && selected && (
-                <li className="text-sm opacity-60">No messages in this conversation.</li>
+                <li className="text-sm opacity-60">{t("sms.no_messages")}</li>
               )}
               {messages.data?.messages.map((m: Sms) => (
                 <li
@@ -143,7 +141,7 @@ export default function SmsPage() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!deviceId) {
-                    setSendError("Select a device first");
+                    setSendError(t("sms.select_device_first"));
                     return;
                   }
                   sendSms.mutate({
@@ -157,7 +155,7 @@ export default function SmsPage() {
                   <input
                     type="tel"
                     className="input input-bordered input-sm flex-1"
-                    placeholder="To"
+                    placeholder={t("sms.placeholder_to")}
                     value={compose.to || selected || ""}
                     onChange={(e) => setCompose((c) => ({ ...c, to: e.target.value }))}
                   />
@@ -165,22 +163,20 @@ export default function SmsPage() {
                 <textarea
                   className="textarea textarea-bordered"
                   rows={2}
-                  placeholder="Message…"
+                  placeholder={t("sms.placeholder_body")}
                   value={compose.body}
                   onChange={(e) => setCompose((c) => ({ ...c, body: e.target.value }))}
                 />
                 <div className="flex items-center justify-between">
                   <span className="text-xs opacity-60">
-                    Sends via{" "}
-                    {devices.data?.devices.find((d) => d.device_id === deviceId)?.name ?? "—"}.
-                    Conversation will refresh on Android confirm.
+                    {t("sms.send_via", { name: devices.data?.devices.find((d) => d.device_id === deviceId)?.name ?? "—" })}
                   </span>
                   <button
                     type="submit"
                     className="btn btn-primary btn-sm"
                     disabled={!compose.body || sendSms.isPending}
                   >
-                    Send
+                    {t("sms.send")}
                   </button>
                 </div>
                 {sendError && <div className="alert alert-error text-xs">{sendError}</div>}

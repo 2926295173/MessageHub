@@ -1,0 +1,72 @@
+[package]
+name = "message-center"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "PhoneBridge message-center (axum + TLS + mDNS) — the central broker that fans Android events out to the web console and the desktop display endpoint."
+
+[[bin]]
+name = "message-center"
+path = "src/main.rs"
+
+[build-dependencies]
+# We use include_dir! as a regular dependency, not a build script.
+
+[dependencies]
+phonebridge-proto = { path = "../phonebridge-proto" }
+phonebridge-core = { path = "../phonebridge-core" }
+phonebridge-crypto = { path = "../phonebridge-crypto" }
+phonebridge-storage = { path = "../phonebridge-storage" }
+phonebridge-bus = { path = "../phonebridge-bus" }
+phonebridge-net = { path = "../phonebridge-net" }
+
+parking_lot.workspace = true
+async-trait.workspace = true
+utoipa.workspace = true
+
+tokio.workspace = true
+axum.workspace = true
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tower.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+futures.workspace = true
+
+rustls.workspace = true
+ring.workspace = true
+rustls-pemfile = "2"
+base64.workspace = true
+mdns-sd.workspace = true
+tokio-tungstenite.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Used by display_auth::is_same_host to enumerate the host's
+# local interface IPs (so a display client connecting from
+# `192.168.x.y` where `x.y` is one of our own addresses is
+# recognized as same-host and skips the token check).
+nix = { version = "0.29", default-features = false, features = ["net"] }
+
+include_dir.workspace = true
+mime_guess.workspace = true
+once_cell.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true

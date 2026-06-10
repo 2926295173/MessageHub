@@ -1,4 +1,10 @@
-//! In-process event bus. The daemon's modules publish events here; downstream
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
+//! In-process event bus. The message-center’s modules publish events here; downstream
 //! subscribers (UI, audit log, future automation rules) attach themselves.
 //!
 //! M1: stub with a typed `Bus` handle + subscribe/publish primitives.
@@ -124,6 +130,7 @@ mod tests {
                 port: None,
                 manufacturer: None,
                 model: None,
+                hardware_id: None,
             },
         )
         .unwrap()

@@ -24,7 +24,7 @@ private const val TAG = "SmsReceiver"
 
 /**
  * Receives incoming SMS via the system broadcast and forwards a
- * `sms.received` envelope to the daemon. Wire shape matches the
+ * `sms.received` envelope to the message-center. Wire shape matches the
  * Rust `SmsReceived` struct.
  *
  * Permissions: RECEIVE_SMS (granted at runtime).
@@ -71,7 +71,7 @@ class SmsReceiver : BroadcastReceiver() {
          * Pure function: take the parsed [Telephony.SmsMessage]
          * parts (a multipart SMS arrives as multiple parts; we
          * concatenate bodies + use the first part's address) and
-         * build the [Envelope] to send to the daemon.
+         * build the [Envelope] to send to the message-center.
          *
          * Returns null if [parts] is empty (after dropping any
          * nulls that the framework may have inserted).

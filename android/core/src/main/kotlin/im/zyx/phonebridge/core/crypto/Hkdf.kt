@@ -4,7 +4,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * RFC 5869 HKDF using HMAC-SHA256. Used to derive the 6-digit
+ * RFC 5869 HKDF using HMAC-SHA256. Used to derive the 4-digit
  * pairing code from a 32-byte ECDH shared secret.
  */
 object Hkdf {

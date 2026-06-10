@@ -9,8 +9,8 @@ import im.zyx.phonebridge.core.protocol.MessageType
 import im.zyx.phonebridge.core.protocol.PairChallengePayload
 import im.zyx.phonebridge.core.protocol.PairCompletePayload
 import im.zyx.phonebridge.core.protocol.PairConfirmPayload
-import im.zyx.phonebridge.core.protocol.PairRejectPayload
 import im.zyx.phonebridge.core.protocol.PairRequestPayload
+import im.zyx.phonebridge.core.protocol.PairRejectPayload
 import im.zyx.phonebridge.core.protocol.json
 import im.zyx.phonebridge.data.IdentityStore
 import im.zyx.phonebridge.data.IdentityWithKey
@@ -32,13 +32,13 @@ private const val TAG = "Pairing"
  *
  * The long-term identity (keypair + self-signed X.509 cert) and
  * the stable device id are persisted in [PrefsRepository] so they
- * survive process restarts — the daemon sees the same `device_id`
+ * survive process restarts — the message-center sees the same `device_id`
  * and the same `pubkey` in `device.hello` on every reconnect.
  *
  * Flow:
  *  1. Desktop sends `device.pair.request` with its ephemeral pubkey.
  *  2. We generate an ephemeral keypair, compute ECDH, derive the
- *     6-digit code via HKDF-SHA256, and reply with
+ *     4-digit code via HKDF-SHA256, and reply with
  *     `device.pair.challenge` carrying our ephemeral pubkey + the
  *     code + an expiry.
  *  3. The user visually verifies the code on Android, types it on
@@ -66,6 +66,7 @@ sealed interface PairingState {
         val peerFingerprint: String
     ) : PairingState
     data class Failed(val reason: String) : PairingState
+    data class Initiating(val startedAtMs: Long) : PairingState
 }
 
 @Singleton
@@ -167,6 +168,53 @@ class PairingMachine @Inject constructor(
         )
     }
 
+    /**
+     * User explicitly accepted the pairing on the phone. Build a
+     * `device.pair.confirm(accepted=true)` envelope to send — does NOT
+     * wait for an incoming `device.pair.accept` from the desktop. The
+     * phone is the trusted UI surface (per the project's threat
+     * model: the desktop may be compromised, the phone is always
+     * safe), so the user's click here is the canonical confirmation.
+     *
+     * Returns null if the state machine is not in [PairingState.ShowingCode]
+     * (e.g. the code already expired or the user accepted too late).
+     */
+    fun userAccepts(): Envelope? {
+        val current = _state.value
+        if (current !is PairingState.ShowingCode) {
+            Log.w(TAG, "userAccepts in wrong state: $current")
+            return null
+        }
+        if (Instant.now().toEpochMilli() > current.expiresAtMs) {
+            _state.value = PairingState.Failed("code expired")
+            Log.w(TAG, "userAccepts after expiry; transitioned to Failed")
+            return null
+        }
+        _state.value = PairingState.Confirming(
+            code = current.code,
+            peerDeviceId = current.peerDeviceId,
+        )
+        Log.i(TAG, "user accepts pairing; sending confirm(true)")
+        return makeConfirm(current.peerDeviceId, ourDeviceId(), accepted = true)
+    }
+
+    /**
+     * User explicitly rejected the pairing on the phone. Sends a
+     * `device.pair.confirm(accepted=false)` and transitions to
+     * [PairingState.Failed]. Symmetric with [userAccepts].
+     */
+    fun userRejects(reason: String = "rejected by user"): Envelope? {
+        val current = _state.value
+        if (current !is PairingState.ShowingCode) {
+            Log.w(TAG, "userRejects in wrong state: $current")
+            return null
+        }
+        val env = makeConfirm(current.peerDeviceId, ourDeviceId(), accepted = false)
+        _state.value = PairingState.Failed(reason)
+        Log.i(TAG, "user rejects pairing: $reason")
+        return env
+    }
+
     fun onAccept(envelope: Envelope, ourDeviceId: String): Envelope {
         val current = _state.value
         if (current !is PairingState.ShowingCode) {
@@ -246,6 +294,94 @@ class PairingMachine @Inject constructor(
         _state.value = PairingState.Idle
         ephemeral = null
         // Long-term identity is persistent; do not reset.
+    }
+
+    // ========================================================================
+    // Initiator (phone-initiated) side
+    // ========================================================================
+
+    /**
+     * Phone is initiating pairing with the desktop. Generates an
+     * ephemeral keypair, transitions to [PairingState.Initiating], and
+     * returns the `device.pair.request` envelope to send.
+     *
+     * Returns null if we're not in [PairingState.Idle] (i.e. a pairing
+     * is already in flight in the other direction).
+     */
+    fun initiate(): Envelope? {
+        if (_state.value !is PairingState.Idle) {
+            Log.w(TAG, "initiate while not idle: ${_state.value}")
+            return null
+        }
+        val kp = Ecdh.generateKeyPair()
+        val ourPubB64 = Ecdh.toBase64(kp.public as ECPublicKey)
+        ephemeral = kp
+        // The desktop will use the peer id from the envelope header,
+        // so we set device_id to our own id; the WS layer will route
+        // it to the right connected device.
+        val env = Envelope(
+            v = 1,
+            id = UUID.randomUUID().toString(),
+            ts = Instant.now().toEpochMilli(),
+            type = MessageType.DEVICE_PAIR_REQUEST,
+            device_id = ourDeviceId(),
+            payload = json.encodeToJsonElement(
+                PairRequestPayload.serializer(),
+                PairRequestPayload(ephemeral_pubkey = ourPubB64)
+            )
+        )
+        _state.value = PairingState.Initiating(
+            startedAtMs = Instant.now().toEpochMilli(),
+        )
+        Log.i(TAG, "initiate: sending pair.request")
+        return env
+    }
+
+    /**
+     * Handle `device.pair.confirm` from the desktop. If accepted,
+     * build a `device.pair.complete` carrying our long-term cert and
+     * transition to [PairingState.Paired]. If rejected, transition to
+     * [PairingState.Failed]. Symmetric to the responder's [onAccept]
+     * but skips the code-typed-on-the-desktop step.
+     */
+    fun onInitiatorConfirm(envelope: Envelope, ourDeviceId: String): Envelope? {
+        if (_state.value !is PairingState.Initiating) {
+            Log.w(TAG, "onInitiatorConfirm in wrong state: ${_state.value}")
+            return null
+        }
+        val confirm: PairConfirmPayload = runCatching {
+            json.decodeFromJsonElement(PairConfirmPayload.serializer(), envelope.payload)
+        }.onFailure { Log.w(TAG, "bad pair.confirm payload: $it") }
+            .getOrNull() ?: return null
+
+        if (!confirm.accepted) {
+            _state.value = PairingState.Failed("desktop rejected pairing")
+            Log.w(TAG, "desktop rejected pairing")
+            return null
+        }
+
+        // Accepted: build our pair.complete.
+        val pem = longTermPem ?: run {
+            Log.e(TAG, "no long-term cert; ensureIdentity() was not called")
+            return null
+        }
+        val fp = longTermFingerprintStr ?: return null
+        _state.value = PairingState.Confirming(
+            code = "(phone-initiated, no code)",
+            peerDeviceId = envelope.device_id,
+        )
+        Log.i(TAG, "desktop accepted; sending pair.complete (fp=$fp)")
+        return Envelope(
+            v = 1,
+            id = UUID.randomUUID().toString(),
+            ts = Instant.now().toEpochMilli(),
+            type = MessageType.DEVICE_PAIR_COMPLETE,
+            device_id = ourDeviceId,
+            payload = json.encodeToJsonElement(
+                PairCompletePayload.serializer(),
+                PairCompletePayload(cert_pem = pem, cert_fingerprint = fp)
+            )
+        )
     }
 
     private fun makeConfirm(peerDeviceId: String, ourDeviceId: String, accepted: Boolean): Envelope {

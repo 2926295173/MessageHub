@@ -1,7 +1,13 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 PhoneBridge Contributors
+//
+// This file is part of PhoneBridge. See LICENSE and the dual-licensing
+// notice in README.md for details.
+
 //! TLS pinning: validate the client cert presented during a WebSocket
 //! handshake against a stored fingerprint.
 //!
-//! The daemon uses `with_no_client_auth()` in rustls, so the WS server does
+//! The message-center uses `with_no_client_auth()` in rustls, so the WS server does
 //! **not** require a client cert. We accept any cert at the TLS layer and
 //! then validate the fingerprint at the application layer (after reading
 //! the first `device.hello` envelope, which carries the device id we use

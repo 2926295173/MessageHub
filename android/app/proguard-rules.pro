@@ -8,3 +8,7 @@
 -keepclasseswithmembers class im.zyx.phonebridge.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# Ktor transitively pulls in slf4j via its logging facade. We never
+# configure a binding, so silence the missing-class warning.
+-dontwarn org.slf4j.**
