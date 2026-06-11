@@ -164,6 +164,140 @@ For testing across VLANs or in environments with AP isolation, use the manual IP
 - **Kotlin:** Android Studio Hedgehog or newer.
 - **Schema:** any JSON editor; we recommend `vscode-json-schema` for autocompletion against the JSON Schema meta.
 
+### 6.1. Testing the `deskdisplay` toast back-ends
+
+The `DeskDisplay` crate ships with three back-ends
+sharing a single translation layer (title / body /
+buttons) and an in-process mock that captures every
+`present_xxx` translation as a typed `MockToast`:
+
+- **Linux (`LinuxBackend`)** — talks to the real
+  `org.freedesktop.Notifications` D-Bus surface via
+  `zbus`. Requires a running notification daemon
+  (GNOME / KDE / dunst / mako / …) on a graphical
+  session to actually display anything, but the
+  translation logic is testable without it.
+- **Windows 10/11 (`WindowsBackend`)** — talks to
+  `ToastNotificationManager` via the official
+  `windows` crate (WinRT). The crate dependency is
+  **gated on `target_os = "windows"`** so Linux
+  contributors do not download Windows metadata on
+  every `cargo update`. The shared code path is
+  compiled everywhere so the XML template builder
+  and the translation layer stay in sync across
+  platforms; the live `Show()` call is the only piece
+  that needs a real Windows machine to exercise.
+- **macOS / BSD (`StubBackend`)** — logs the event
+  and drops it on the floor. Will be replaced by
+  `objc2` / `UNUserNotificationCenter` in a future
+  release.
+
+#### Headless tests (any host, no GUI required)
+
+```bash
+cargo test -p deskdisplay --lib
+```
+
+This runs the full mock + XML-template test suite
+(46 tests as of M6 hardening). Every assertion is on
+the exact `(title, body, actions)` triple the OS
+surface would have been told. If a test ever fails,
+that is the signal that the user-visible toast format
+has drifted, not that the test is running a parallel
+re-implementation.
+
+#### Verifying real Linux toasts (optional)
+
+To watch a real toast land on your desktop, you need a
+graphical session with a notification daemon running.
+The simplest setup on Debian-family distros is
+`sudo apt install dunst` and a session that auto-starts
+it (most do).
+
+```bash
+# 1. Build & start message-center on the dev host:
+bash scripts/setup.sh
+./target/debug/message-center --no-tls --bind 0.0.0.0:8080 &
+
+# 2. Start deskdisplay pointing at it (port 8080, HTTP):
+mkdir -p /tmp/dd-conf
+cat > /tmp/dd-conf/display.toml <<EOF
+[daemon]
+url = "http://127.0.0.1:8080"
+token_file = "$HOME/.config/phonebridge/display.token"
+
+[i18n]
+locale = "en"
+EOF
+RUST_LOG=info,phonebridge_net=debug,deskdisplay=info \
+    ./target/debug/deskdisplay --config /tmp/dd-conf/display.toml &
+
+# 3. Push a synthetic SMS event so you can eyeball the
+#    toast without pairing a real phone:
+curl -k -sS http://127.0.0.1:8080/api/v1/pair/cli
+# (use the pair_cli output for an end-to-end demo;
+# see scripts/e2e-smoke.sh for the full handshake)
+```
+
+You should see a toast land in your notification
+daemon with the "SMS from +86…" title and three
+buttons. Clicking `[Reply]` will spawn `zenity` (or
+`kdialog` if zenity is missing) to collect the
+reply text; the reply is then sent back over the
+WebSocket to `message-center` and forwarded to the
+Android agent.
+
+#### Verifying real Windows 11 toasts (manual, on a Win 11 box)
+
+The Windows back-end ships **without** the `windows`
+crate in `DeskDisplay/Cargo.toml` so that Linux CI
+builds do not need to download Windows metadata.
+To exercise the live `ToastNotificationManager.Show()`
+path on a real Windows 11 machine, do the following:
+
+1. `git pull` this branch on your Win 11 box.
+2. Add the platform-specific dep to
+   `DeskDisplay/Cargo.toml`:
+
+   ```toml
+   [target.'cfg(target_os = "windows")'.dependencies]
+   windows = { version = "0.58", features = [
+       "UI_Notifications",
+       "Data_Xml_Dom",
+       "Foundation",
+   ] }
+   ```
+
+3. Replace the no-op body of
+   `DeskDisplay/src/backends/windows.rs::WindowsBackend::start()`
+   with the real
+   `ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(AUMID))`
+   call, and the no-op rendering inside
+   `show_translated()` with the actual
+   `ToastNotificationManager::Show()` WinRT call.
+   Wire the `Activated` `TypedEventHandler` to map
+   `phonebridge://action/{key}` back to a
+   `DisplayAction` via the same `action_for_key` table
+   the Linux back-end uses (mirrors
+   `crates/phonebridge-display/src/backends/linux.rs`).
+4. `cargo build -p deskdisplay` — should compile
+   cleanly on Win 11 MSVC.
+5. Pair the dev machine with an Android client and
+   trigger a real `sms.received` event. You should
+   see an Action Center toast with three buttons;
+   clicking a button should post the corresponding
+   `DisplayAction` back to `message-center`, which
+   the Android agent then turns into a real SMS reply
+   / mark-as-read / dismiss.
+
+The XML shape that the live `Show()` will send is
+already covered by
+`backends::windows::tests::build_toast_xml_*` and
+`xml_for_an_sms_toast_contains_address_and_three_buttons`,
+so a test that passes locally is strong evidence
+that the WinRT call will render the same thing once
+wired up.
+
 ## 7. Releasing (placeholder for M9)
 
 Once a tag is pushed, the CI workflow builds:
