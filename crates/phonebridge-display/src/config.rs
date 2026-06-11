@@ -56,7 +56,16 @@ impl DisplayConfig {
     /// defaults for any missing field. Returns the effective
     /// config + the path it was loaded from.
     pub fn load() -> Result<Self, DisplayError> {
-        let path = default_config_path();
+        Self::load_from(default_config_path())
+    }
+
+    /// Load from an explicit path. Missing file is not an
+    /// error — every field falls back to its default. The
+    /// returned `config_path` reflects whatever was passed
+    /// in, so `main.rs` can echo it back when the user asked
+    /// for a specific path but the file didn't exist.
+    pub fn load_from(path: impl Into<PathBuf>) -> Result<Self, DisplayError> {
+        let path = path.into();
         let mut cfg = DisplayConfig {
             // Loopback default — matches the same-host short-circuit
             // on the message-center side. When the user runs both

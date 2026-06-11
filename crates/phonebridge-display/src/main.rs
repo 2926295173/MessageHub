@@ -70,7 +70,11 @@ fn main() -> ExitCode {
         .with_target(false)
         .init();
 
-    let mut cfg = match config::DisplayConfig::load() {
+    let load_result = match cli.config.as_deref() {
+        Some(p) => config::DisplayConfig::load_from(p),
+        None => config::DisplayConfig::load(),
+    };
+    let mut cfg = match load_result {
         Ok(c) => c,
         Err(e) => {
             eprintln!("phonebridge-display: {e}");

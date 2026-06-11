@@ -109,31 +109,16 @@ All inter-component traffic between the Android agent and the message-center is 
 
 ## License
 
-PhoneBridge is **dual-licensed**.
+PhoneBridge is licensed under the
+[**GNU Affero General Public License v3.0 or later**](LICENSE)
+(`AGPL-3.0-or-later`). The full text is in [`LICENSE`](LICENSE).
 
-- **Open source — [GNU Affero General Public License v3.0 or later](LICENSE)**
-  (`AGPL-3.0-or-later`). The full text is in [`LICENSE`](LICENSE).
-  You may study, modify, and redistribute the source for any purpose,
-  including in source or binary form, **provided that any modified
-  version you distribute — including a modified version running on a
-  network server — is also made available in complete corresponding
-  source code under the same AGPL-3.0 terms** (see §13 of the
-  AGPL-3.0). If that is fine for your use case, you are good to go
-  under the AGPL alone.
-
-- **Commercial license** — for organizations that need to convey
-  PhoneBridge (or derivative works) under different terms: e.g.
-  proprietary device firmware, OEM bundling, closed-source appliances,
-  or SaaS deployments that do not wish to publish their modifications.
-  See [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md) for what a
-  commercial license typically covers and how to request one.
-  **A signed commercial license agreement is required before any
-  rights under that path become effective.** Until then, the AGPL-3.0
-  governs.
-
-To start a commercial-license conversation, open a GitHub issue
-with the `commercial-license` label or contact the copyright holder
-through the channels listed in [`docs/dev-setup.md`](docs/dev-setup.md).
+You may study, modify, and redistribute the source for any purpose,
+including in source or binary form, **provided that any modified
+version you distribute — including a modified version running on a
+network server — is also made available in complete corresponding
+source code under the same AGPL-3.0 terms** (see §13 of the
+AGPL-3.0).
 
 SPDX identifier for the Rust workspace: `AGPL-3.0-or-later`
 (see the `license` field in [`Cargo.toml`](Cargo.toml)).
