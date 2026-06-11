@@ -41,17 +41,21 @@ pub trait DisplayBackend: Send + Sync {
     }
 }
 
-/// Create the platform-appropriate backend. Falls back to
-/// a no-op stub on platforms we don't support yet (e.g.
-/// non-Linux Unix, Windows, macOS — PR9 + PR10 will plug
-/// in those backends).
+/// Create the platform-appropriate backend. Linux gets
+/// the real zbus back-end; Windows 10/11 gets the
+/// ToastNotificationManager back-end; everything else
+/// (macOS, BSD) falls back to a no-op stub.
 #[allow(unused_assignments, clippy::needless_return)]
 pub fn create(cfg: &DisplayConfig) -> Result<Box<dyn DisplayBackend>, DisplayError> {
     #[cfg(target_os = "linux")]
     {
         return Ok(Box::new(linux::LinuxBackend::new(cfg)?));
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(Box::new(windows::WindowsBackend::new(cfg)?));
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = cfg;
         return Ok(Box::new(stub::StubBackend));
@@ -59,4 +63,6 @@ pub fn create(cfg: &DisplayConfig) -> Result<Box<dyn DisplayBackend>, DisplayErr
 }
 
 pub mod linux;
+pub mod mock;
 pub mod stub;
+pub mod windows;

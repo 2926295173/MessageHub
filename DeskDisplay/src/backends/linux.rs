@@ -53,7 +53,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 use async_trait::async_trait;
 use futures::StreamExt;
 use phonebridge_proto::{
-    CallIncoming, CallState, CallStateKind, DisplayAction, NotificationReceived, SmsReceived,
+    CallIncoming, CallState, CallStateKind, DisplayAction, DisplayEvent, NotificationReceived,
+    SmsReceived,
 };
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
@@ -110,6 +111,19 @@ impl LinuxBackend {
         })
     }
 
+    /// Constructor that does not require a real
+    /// `DisplayConfig`. Used by the test mock and by
+    /// any future call site that only needs the
+    /// translation logic without touching D-Bus.
+    pub fn new_for_test() -> Self {
+        Self {
+            _cfg: DisplayConfig::for_test("http://127.0.0.1:0", ""),
+            conn: StdMutex::new(None),
+            map: Arc::new(StdMutex::new(NotificationMap::default())),
+            sink: ActionSink::new(),
+        }
+    }
+
     /// Build the action tuple list for a notification. The
     /// even-indexed entries are keys (consumed by the
     /// signal handler), the odd-indexed entries are
@@ -132,13 +146,17 @@ impl LinuxBackend {
         }
     }
 
-    async fn present_notification(
+    /// Pure translation step: build the `(title, body,
+    /// actions, kind, metadata)` tuple that the OS surface
+    /// will render, **without** talking to D-Bus. Used by
+    /// the test mock and by the live `present_xxx` path.
+    pub fn translate_notification(
         &self,
         evt_envelope_id: Uuid,
         device_id: Uuid,
         notif: &NotificationReceived,
         i18n: &DisplayI18n,
-    ) -> Result<(), DisplayError> {
+    ) -> Result<super::mock::MockToast, DisplayError> {
         let summary = notif
             .app_name
             .clone()
@@ -149,21 +167,86 @@ impl LinuxBackend {
             notif.content.clone()
         };
         let actions = Self::action_list_for("notification", i18n);
-        let notif_id_str = notif.id.clone();
-        let notif_id = self.notify(&summary, &body, &actions, Some("im")).await?;
+        Ok(super::mock::MockToast {
+            kind: super::mock::MockToastKind::Notification,
+            title: summary,
+            body,
+            actions,
+            envelope_id: evt_envelope_id,
+            device_id,
+        })
+    }
+
+    /// Render an already-translated toast onto the D-Bus
+    /// surface, then record the `notif_id` → envelope
+    /// mapping for callback dispatch.
+    async fn dispatch_toast(
+        &self,
+        toast: &super::mock::MockToast,
+        kind: &str,
+        package: Option<String>,
+        address: Option<String>,
+        call_id: Option<String>,
+        notif_id_str: Option<String>,
+        category: Option<&str>,
+    ) -> Result<(), DisplayError> {
+        let notif_id = self
+            .notify(&toast.title, &toast.body, &toast.actions, category)
+            .await?;
         self.map.lock().unwrap().by_notif_id.insert(
             notif_id,
             NotifRef {
-                envelope_id: evt_envelope_id,
-                device_id,
-                kind: "notification".into(),
-                address: None,
-                call_id: None,
-                package: Some(notif.package.clone()),
-                notif_id: Some(notif_id_str),
+                envelope_id: toast.envelope_id,
+                device_id: toast.device_id,
+                kind: kind.into(),
+                address,
+                call_id,
+                package,
+                notif_id: notif_id_str,
             },
         );
         Ok(())
+    }
+
+    async fn present_notification(
+        &self,
+        evt_envelope_id: Uuid,
+        device_id: Uuid,
+        notif: &NotificationReceived,
+        i18n: &DisplayI18n,
+    ) -> Result<(), DisplayError> {
+        let toast = self.translate_notification(evt_envelope_id, device_id, notif, i18n)?;
+        self.dispatch_toast(
+            &toast,
+            "notification",
+            Some(notif.package.clone()),
+            None,
+            None,
+            Some(notif.id.clone()),
+            Some("im"),
+        )
+        .await
+    }
+
+    pub fn translate_sms(
+        &self,
+        evt_envelope_id: Uuid,
+        device_id: Uuid,
+        sms: &SmsReceived,
+        i18n: &DisplayI18n,
+    ) -> Result<super::mock::MockToast, DisplayError> {
+        let summary = render(
+            i18n.t("notif.sms.incoming"),
+            &[("address", sms.address.as_str())],
+        );
+        Ok(super::mock::MockToast {
+            kind: super::mock::MockToastKind::Sms,
+            title: summary,
+            body: sms.body.clone(),
+            actions: Self::action_list_for("sms", i18n),
+            envelope_id: evt_envelope_id,
+            device_id,
+        })
     }
 
     async fn present_sms(
@@ -173,26 +256,38 @@ impl LinuxBackend {
         sms: &SmsReceived,
         i18n: &DisplayI18n,
     ) -> Result<(), DisplayError> {
+        let toast = self.translate_sms(evt_envelope_id, device_id, sms, i18n)?;
+        self.dispatch_toast(
+            &toast,
+            "sms",
+            None,
+            Some(sms.address.clone()),
+            None,
+            None,
+            Some("im"),
+        )
+        .await
+    }
+
+    pub fn translate_call_incoming(
+        &self,
+        evt_envelope_id: Uuid,
+        device_id: Uuid,
+        call: &CallIncoming,
+        i18n: &DisplayI18n,
+    ) -> Result<super::mock::MockToast, DisplayError> {
         let summary = render(
-            i18n.t("notif.sms.incoming"),
-            &[("address", sms.address.as_str())],
+            i18n.t("notif.call.incoming"),
+            &[("number", call.phone_number.as_str())],
         );
-        let body = sms.body.clone();
-        let actions = Self::action_list_for("sms", i18n);
-        let notif_id = self.notify(&summary, &body, &actions, Some("im")).await?;
-        self.map.lock().unwrap().by_notif_id.insert(
-            notif_id,
-            NotifRef {
-                envelope_id: evt_envelope_id,
-                device_id,
-                kind: "sms".into(),
-                address: Some(sms.address.clone()),
-                call_id: None,
-                package: None,
-                notif_id: None,
-            },
-        );
-        Ok(())
+        Ok(super::mock::MockToast {
+            kind: super::mock::MockToastKind::CallIncoming,
+            title: summary,
+            body: call.contact_name.clone().unwrap_or_default(),
+            actions: Self::action_list_for("call", i18n),
+            envelope_id: evt_envelope_id,
+            device_id,
+        })
     }
 
     async fn present_call_incoming(
@@ -202,37 +297,28 @@ impl LinuxBackend {
         call: &CallIncoming,
         i18n: &DisplayI18n,
     ) -> Result<(), DisplayError> {
-        let summary = render(
-            i18n.t("notif.call.incoming"),
-            &[("number", call.phone_number.as_str())],
-        );
-        let body = call.contact_name.clone().unwrap_or_default();
-        let actions = Self::action_list_for("call", i18n);
-        let notif_id = self.notify(&summary, &body, &actions, Some("call")).await?;
-        self.map.lock().unwrap().by_notif_id.insert(
-            notif_id,
-            NotifRef {
-                envelope_id: evt_envelope_id,
-                device_id,
-                kind: "call".into(),
-                address: Some(call.phone_number.clone()),
-                call_id: None,
-                package: None,
-                notif_id: None,
-            },
-        );
-        Ok(())
+        let toast = self.translate_call_incoming(evt_envelope_id, device_id, call, i18n)?;
+        self.dispatch_toast(
+            &toast,
+            "call",
+            None,
+            Some(call.phone_number.clone()),
+            None,
+            None,
+            Some("call"),
+        )
+        .await
     }
 
-    async fn present_call_state(
+    pub fn translate_call_state(
         &self,
         evt_envelope_id: Uuid,
         device_id: Uuid,
         call: &CallState,
         i18n: &DisplayI18n,
-    ) -> Result<(), DisplayError> {
+    ) -> Result<Option<super::mock::MockToast>, DisplayError> {
         if call.state != CallStateKind::Ringing && call.state != CallStateKind::Offhook {
-            return Ok(());
+            return Ok(None);
         }
         let number = call.phone_number.clone().unwrap_or_default();
         let summary = if call.state == CallStateKind::Offhook {
@@ -243,30 +329,45 @@ impl LinuxBackend {
                 &[("number", number.as_str())],
             )
         };
-        let actions = Self::action_list_for("call", i18n);
-        let notif_id = self.notify(&summary, "", &actions, Some("call")).await?;
-        self.map.lock().unwrap().by_notif_id.insert(
-            notif_id,
-            NotifRef {
-                envelope_id: evt_envelope_id,
-                device_id,
-                kind: "call".into(),
-                address: Some(number),
-                call_id: call.call_id.clone(),
-                package: None,
-                notif_id: None,
-            },
-        );
+        Ok(Some(super::mock::MockToast {
+            kind: super::mock::MockToastKind::CallOngoing,
+            title: summary,
+            body: String::new(),
+            actions: Self::action_list_for("call", i18n),
+            envelope_id: evt_envelope_id,
+            device_id,
+        }))
+    }
+
+    async fn present_call_state(
+        &self,
+        evt_envelope_id: Uuid,
+        device_id: Uuid,
+        call: &CallState,
+        i18n: &DisplayI18n,
+    ) -> Result<(), DisplayError> {
+        if let Some(toast) = self.translate_call_state(evt_envelope_id, device_id, call, i18n)? {
+            self.dispatch_toast(
+                &toast,
+                "call",
+                None,
+                Some(call.phone_number.clone().unwrap_or_default()),
+                call.call_id.clone(),
+                None,
+                Some("call"),
+            )
+            .await?;
+        }
         Ok(())
     }
 
-    async fn present_action_result(
+    pub fn translate_action_result(
         &self,
         envelope_id: Uuid,
         device_id: Uuid,
         payload: &serde_json::Value,
         i18n: &DisplayI18n,
-    ) -> Result<(), DisplayError> {
+    ) -> Result<super::mock::MockToast, DisplayError> {
         let ok = payload.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         let body = if ok {
             i18n.t("toast.action_sent").to_string()
@@ -277,23 +378,56 @@ impl LinuxBackend {
                 .unwrap_or("");
             render(i18n.t("toast.action_failed"), &[("message", msg)])
         };
-        let actions = Vec::<(String, String)>::new();
-        let notif_id = self
-            .notify(&body, "", &actions, Some("transfer.complete"))
-            .await?;
-        self.map.lock().unwrap().by_notif_id.insert(
-            notif_id,
-            NotifRef {
-                envelope_id,
-                device_id,
-                kind: "action_result".into(),
-                address: None,
-                call_id: None,
-                package: None,
-                notif_id: None,
-            },
-        );
-        Ok(())
+        Ok(super::mock::MockToast {
+            kind: super::mock::MockToastKind::ActionResult,
+            title: body,
+            body: String::new(),
+            actions: Vec::new(),
+            envelope_id,
+            device_id,
+        })
+    }
+
+    async fn present_action_result(
+        &self,
+        envelope_id: Uuid,
+        device_id: Uuid,
+        payload: &serde_json::Value,
+        i18n: &DisplayI18n,
+    ) -> Result<(), DisplayError> {
+        let toast = self.translate_action_result(envelope_id, device_id, payload, i18n)?;
+        self.dispatch_toast(
+            &toast,
+            "action_result",
+            None,
+            None,
+            None,
+            None,
+            Some("transfer.complete"),
+        )
+        .await
+    }
+
+    pub fn translate_phone_offline(
+        &self,
+        envelope_id: Uuid,
+        device_id: Uuid,
+        payload: &serde_json::Value,
+        i18n: &DisplayI18n,
+    ) -> Result<super::mock::MockToast, DisplayError> {
+        let action_kind = payload
+            .get("action_kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let body = format!("{} ({})", i18n.t("toast.phone_offline"), action_kind);
+        Ok(super::mock::MockToast {
+            kind: super::mock::MockToastKind::PhoneOffline,
+            title: body,
+            body: String::new(),
+            actions: Vec::new(),
+            envelope_id,
+            device_id,
+        })
     }
 
     async fn present_phone_offline(
@@ -303,28 +437,17 @@ impl LinuxBackend {
         payload: &serde_json::Value,
         i18n: &DisplayI18n,
     ) -> Result<(), DisplayError> {
-        let action_kind = payload
-            .get("action_kind")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let body = format!("{} ({})", i18n.t("toast.phone_offline"), action_kind);
-        let actions = Vec::<(String, String)>::new();
-        let notif_id = self
-            .notify(&body, "", &actions, Some("transfer.error"))
-            .await?;
-        self.map.lock().unwrap().by_notif_id.insert(
-            notif_id,
-            NotifRef {
-                envelope_id,
-                device_id,
-                kind: "phone_offline".into(),
-                address: None,
-                call_id: None,
-                package: None,
-                notif_id: None,
-            },
-        );
-        Ok(())
+        let toast = self.translate_phone_offline(envelope_id, device_id, payload, i18n)?;
+        self.dispatch_toast(
+            &toast,
+            "phone_offline",
+            None,
+            None,
+            None,
+            None,
+            Some("transfer.error"),
+        )
+        .await
     }
 
     /// Wraps the `org.freedesktop.Notifications.Notify`
@@ -371,6 +494,72 @@ impl LinuxBackend {
             .await
             .map_err(|e| DisplayError::Dbus(format!("Notify: {e}")))?;
         Ok(id)
+    }
+
+    /// Translate a raw `DisplayEvent` to the typed
+    /// `MockToast` the OS surface will render. Pure (no
+    /// D-Bus, no notifications daemon I/O), so it is the
+    /// function both the live back-end and the test
+    /// mock route through.
+    ///
+    /// Returns `Ok(None)` for events the back-end
+    /// deliberately ignores (unknown `kind`, idle
+    /// `call.state`).
+    pub async fn translate_via_event(
+        &self,
+        event: &DisplayEvent,
+        i18n: &DisplayI18n,
+    ) -> Result<Option<super::mock::MockToast>, DisplayError> {
+        match event.kind.as_str() {
+            "notification.received" => {
+                let n: NotificationReceived = serde_json::from_value(event.payload.clone())
+                    .map_err(|e| DisplayError::Protocol(format!("notification.received: {e}")))?;
+                Ok(Some(self.translate_notification(
+                    event.envelope_id,
+                    event.device_id,
+                    &n,
+                    i18n,
+                )?))
+            }
+            "sms.received" => {
+                let s: SmsReceived = serde_json::from_value(event.payload.clone())
+                    .map_err(|e| DisplayError::Protocol(format!("sms.received: {e}")))?;
+                Ok(Some(self.translate_sms(
+                    event.envelope_id,
+                    event.device_id,
+                    &s,
+                    i18n,
+                )?))
+            }
+            "call.incoming" => {
+                let c: CallIncoming = serde_json::from_value(event.payload.clone())
+                    .map_err(|e| DisplayError::Protocol(format!("call.incoming: {e}")))?;
+                Ok(Some(self.translate_call_incoming(
+                    event.envelope_id,
+                    event.device_id,
+                    &c,
+                    i18n,
+                )?))
+            }
+            "call.state" => {
+                let c: CallState = serde_json::from_value(event.payload.clone())
+                    .map_err(|e| DisplayError::Protocol(format!("call.state: {e}")))?;
+                self.translate_call_state(event.envelope_id, event.device_id, &c, i18n)
+            }
+            "action.result" => Ok(Some(self.translate_action_result(
+                event.envelope_id,
+                event.device_id,
+                &event.payload,
+                i18n,
+            )?)),
+            "phone.offline" => Ok(Some(self.translate_phone_offline(
+                event.envelope_id,
+                event.device_id,
+                &event.payload,
+                i18n,
+            )?)),
+            _ => Ok(None),
+        }
     }
 }
 
