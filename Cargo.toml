@@ -8,7 +8,7 @@ members = [
     "crates/phonebridge-storage",
     "crates/phonebridge-bus",
     "crates/message-center",
-    "crates/phonebridge-display",
+    "DeskDisplay",
 ]
 
 [workspace.package]

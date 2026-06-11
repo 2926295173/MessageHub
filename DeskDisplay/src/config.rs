@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 PhoneBridge Contributors
 //
-// This file is part of PhoneBridge. See LICENSE and the dual-licensing
-// notice in README.md for details.
+// This file is part of PhoneBridge. See LICENSE.
 
 //! Configuration file for the display service.
 //!
@@ -37,9 +36,10 @@ use crate::error::DisplayError;
 const QUALIFIER: &str = "im";
 const ORG: &str = "zyx";
 // The display binary shares its config dir with the
-// daemon (`~/.config/phonebridge/`). Using the same app
-// name keeps the XDG layout consistent — no surprise
-// `~/.config/im.zyx.phonebridge-display/` directory on
+// daemon (`~/.config/zyx/phonebridge/display.toml` and
+// `display.token`). Using the same `ORG` / `APP` as the
+// daemon keeps the XDG layout consistent — no surprise
+// per-binary `~/.config/zyx/<binary-name>/` directory on
 // the user's disk.
 const APP: &str = "phonebridge";
 

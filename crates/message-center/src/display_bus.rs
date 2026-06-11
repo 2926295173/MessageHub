@@ -5,7 +5,7 @@
 // notice in README.md for details.
 
 //! `DisplayBus` — process-wide broadcast bus for the
-//! `phonebridge-display` endpoint. Carries the richer
+//! `deskdisplay` endpoint. Carries the richer
 //! [`phonebridge_proto::DisplayEvent`] shape (full payload,
 //! not the lossy `ConsoleEvent.summary`).
 //!

@@ -5,7 +5,7 @@
 // notice in README.md for details.
 
 //! WebSocket endpoint for the desktop display endpoint
-//! (`phonebridge-display`).
+//! (`deskdisplay`).
 //!
 //! Path: `/ws/display?token=…` (HTTP) → `ws://…/ws/display?token=…`
 //!

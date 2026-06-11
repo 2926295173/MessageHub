@@ -169,7 +169,7 @@ For testing across VLANs or in environments with AP isolation, use the manual IP
 Once a tag is pushed, the CI workflow builds:
 
 - `message-center` (Linux x86_64 + aarch64, macOS x86_64 + aarch64, Windows x86_64)
-- `phonebridge-display` (Linux x86_64 + aarch64, macOS x86_64 + aarch64, Windows x86_64)
+- `deskdisplay` (Linux x86_64 + aarch64, macOS x86_64 + aarch64, Windows x86_64)
 - `phonebridge-android` (universal APK + split per ABI)
 
 Artifacts are attached to the GitHub release.

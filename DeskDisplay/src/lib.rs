@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 PhoneBridge Contributors
 //
-// This file is part of PhoneBridge. See LICENSE and the dual-licensing
-// notice in README.md for details.
+// This file is part of PhoneBridge. See LICENSE.
 
-//! `phonebridge-display` — desktop notification surface for
+//! `deskdisplay` — desktop notification surface for
 //! PhoneBridge.
 //!
 //! This binary subscribes to `/ws/display` on the daemon and

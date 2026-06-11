@@ -55,7 +55,7 @@ pub struct DeviceHello {
 // Display endpoint
 // ============================================================================
 //
-// The display endpoint (`phonebridge-display`) is a separate Rust
+// The display endpoint (`deskdisplay`) is a separate Rust
 // binary that subscribes to events over `/ws/display` and shows
 // them on the host's OS notification surface. The protocol
 // is full-duplex: the server pushes `DisplayEvent` lines

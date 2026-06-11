@@ -20,7 +20,7 @@ PhoneBridge 是一个由三部分组成的系统：
 
 - **Android Agent**（Kotlin + Jetpack Compose，包名 `im.zyx.phonebridge`）：通过 mDNS 在局域网内注册、维持前台服务，并通过 TLS+WebSocket 连接把通知 / 短信 / 通话状态转发给 message-center。
 - **Message Center**（Rust，二进制 `message-center`）：中央 broker。单一二进制，无原生 GUI。承载本地 Web 控制台、WebSocket 端点与 mDNS 应答。它把 Android 事件分发到两个表面：Web 控制台与桌面通知端点。
-- **Desktop Notifier**（Rust，二进制 `phonebridge-display`）：订阅 message-center 上的 `/ws/display`，并通过宿主系统通知 API 呈现手机事件（Linux：`org.freedesktop.Notifications`；macOS / Windows：规划中）。
+- **Desktop Notifier**（Rust，二进制 `deskdisplay`）：订阅 message-center 上的 `/ws/display`，并通过宿主系统通知 API 呈现手机事件（Linux：`org.freedesktop.Notifications`；macOS / Windows：规划中）。
 
 不上云。无遥测。无账号。在本地网络下完全离线即可工作。
 
@@ -63,7 +63,7 @@ MessageHub/                         # 上游仓库：github.com/2926295173/Messa
 │   ├── phonebridge-storage/        # sqlx 迁移与模型
 │   ├── phonebridge-bus/            # 进程内事件总线（为插件钩子预留）
 │   ├── message-center/             # 主二进制（中央 broker）
-│   └── phonebridge-display/        # 桌面通知端（订阅 /ws/display）
+│   └── DeskDisplay/             # 桌面通知端（订阅 /ws/display）
 ├── frontend/                       # Next.js 16（App Router，静态导出）
 ├── android/                        # Kotlin + Compose 客户端（im.zyx.phonebridge）
 ├── schema/                         # protocol.schema.json（协议真源）

@@ -2,8 +2,8 @@ name: Release
 
 # Triggered only on a published GitHub Release. Builds the
 # release artifacts (Linux message-center binary, Linux
-# phonebridge-display binary, Android debug APK) and
-# attaches them to the release on GitHub.
+# deskdisplay binary, Android debug APK) and attaches
+# them to the release on GitHub.
 #
 # Heavy work lives in this workflow instead of in
 # ci-desktop.yml / ci-android.yml so we don't double-build
@@ -42,14 +42,14 @@ jobs:
       - name: Build message-center (release)
         run: cargo build --release -p message-center
 
-      - name: Build phonebridge-display (release)
-        run: cargo build --release -p phonebridge-display
+      - name: Build deskdisplay (release)
+        run: cargo build --release -p deskdisplay
 
       - name: Stage binaries
         run: |
           mkdir -p dist
           cp target/release/message-center dist/
-          cp target/release/phonebridge-display dist/
+          cp target/release/deskdisplay dist/
           chmod +x dist/*
           ls -la dist/
 
@@ -127,7 +127,7 @@ jobs:
           tag_name: ${{ github.event.release.tag_name }}
           files: |
             dist/message-center
-            dist/phonebridge-display
+            dist/deskdisplay
             dist/app-debug.apk
           # fail_on_unmatched_files: false so a partially-built
           # release (e.g. rust pass failed and was retried after

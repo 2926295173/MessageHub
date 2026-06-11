@@ -1,5 +1,5 @@
 [package]
-name = "phonebridge-display"
+name = "deskdisplay"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,15 +7,15 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "PhoneBridge desktop display: subscribes to /ws/display and surfaces phone events via the host OS notification API."
+description = "DeskDisplay: subscribes to the message-center /ws/display endpoint and surfaces phone events via the host OS notification API."
 
 [[bin]]
-name = "phonebridge-display"
+name = "deskdisplay"
 path = "src/main.rs"
 
 [dependencies]
 # Workspace
-phonebridge-proto = { path = "../phonebridge-proto" }
+phonebridge-proto = { path = "../crates/phonebridge-proto" }
 
 # Async
 tokio = { workspace = true }

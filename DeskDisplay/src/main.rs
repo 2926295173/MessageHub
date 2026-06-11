@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 PhoneBridge Contributors
 //
-// This file is part of PhoneBridge. See LICENSE and the dual-licensing
-// notice in README.md for details.
+// This file is part of PhoneBridge. See LICENSE.
 
-//! `phonebridge-display` binary entry point.
+//! `deskdisplay` binary entry point.
 //!
 //! Usage:
-//!   phonebridge-display [--config <path>] [--log <level>]
-//!   phonebridge-display --print-config-path
-//!   phonebridge-display --print-default-config
+//!   deskdisplay [--config <path>] [--log <level>]
+//!   deskdisplay --print-config-path
+//!   deskdisplay --print-default-config
 //!
 //! The binary loads the config, then runs the WS client
 //! loop with the platform-appropriate backend.
@@ -21,11 +20,11 @@ use clap::Parser;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-use phonebridge_display::{actions, backends, client, config, i18n, DisplayBackend};
+use deskdisplay::{actions, backends, client, config, i18n, DisplayBackend};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "phonebridge-display",
+    name = "deskdisplay",
     version,
     about = "PhoneBridge desktop notification service"
 )]
@@ -77,7 +76,7 @@ fn main() -> ExitCode {
     let mut cfg = match load_result {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("phonebridge-display: {e}");
+            eprintln!("deskdisplay: {e}");
             return ExitCode::from(2);
         }
     };
@@ -91,7 +90,7 @@ fn main() -> ExitCode {
     {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("phonebridge-display: runtime init failed: {e}");
+            eprintln!("deskdisplay: runtime init failed: {e}");
             return ExitCode::from(2);
         }
     };
@@ -119,7 +118,7 @@ fn main() -> ExitCode {
     })
 }
 
-const DEFAULT_CONFIG_DOC: &str = r#"# phonebridge-display configuration
+const DEFAULT_CONFIG_DOC: &str = r#"# deskdisplay configuration
 #
 # Location: $XDG_CONFIG_HOME/phonebridge/display.toml
 # (default: ~/.config/phonebridge/display.toml)

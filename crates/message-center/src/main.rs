@@ -51,7 +51,7 @@ struct Args {
     name: Option<String>,
     /// Print the current display-endpoint token to stdout
     /// and exit. The token authenticates the
-    /// `phonebridge-display` endpoint to the message-center's
+    /// `deskdisplay` endpoint to the message-center's
     /// `/ws/display` route. Keep it secret.
     #[arg(long, conflicts_with_all = ["rotate_display_token", "revoke_display_token"])]
     print_display_token: bool,

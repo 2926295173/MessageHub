@@ -20,7 +20,7 @@ A three-component system:
 
 - **Android Agent** (Kotlin + Jetpack Compose, package `im.zyx.phonebridge`): registers on the LAN via mDNS, runs a foreground service, and forwards notifications / SMS / call state to the message-center over a TLS+WebSocket connection.
 - **Message Center** (Rust, binary `message-center`): the central broker. A single binary, no native GUI. Hosts the local web console, the WebSocket endpoints, and the mDNS responder. It fans Android events out to two surfaces: the web console and the desktop notification endpoint.
-- **Desktop Notifier** (Rust, binary `phonebridge-display`): subscribes to `/ws/display` on the message-center and surfaces phone events via the host OS notification surface (Linux: `org.freedesktop.Notifications`; macOS / Windows: planned).
+- **Desktop Notifier** (Rust, binary `deskdisplay`): subscribes to `/ws/display` on the message-center and surfaces phone events via the host OS notification surface (Linux: `org.freedesktop.Notifications`; macOS / Windows: planned).
 
 No cloud. No telemetry. No account. Works fully offline on a local network.
 
@@ -63,7 +63,7 @@ MessageHub/                         # upstream repo: github.com/2926295173/Messa
 │   ├── phonebridge-storage/        # sqlx migrations + models
 │   ├── phonebridge-bus/            # In-process event bus (plugin hook reserve)
 │   ├── message-center/             # Main binary (the central broker)
-│   └── phonebridge-display/        # Desktop notifier (subscribes to /ws/display)
+│   └── DeskDisplay/             # Desktop notifier (subscribes to /ws/display)
 ├── frontend/                       # Next.js 16 (App Router, static export)
 ├── android/                        # Kotlin + Compose client (im.zyx.phonebridge)
 ├── schema/                         # protocol.schema.json (source of truth)

@@ -609,6 +609,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskdisplay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "directories",
+ "futures",
+ "phonebridge-proto",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "zbus",
+ "zvariant",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1799,32 +1825,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "phonebridge-display"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "clap",
- "directories",
- "futures",
- "phonebridge-proto",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "toml",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "zbus",
- "zvariant",
 ]
 
 [[package]]
