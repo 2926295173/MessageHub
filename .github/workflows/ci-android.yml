@@ -1,14 +1,13 @@
 name: android
 
+# Manual-trigger-only workflow. The release pipeline that
+# builds the Android APK and attaches it to a GitHub
+# Release lives in ci-release.yml. This file is preserved
+# for ad-hoc Android-only runs: trigger from the Actions
+# tab when you want to validate a change without cutting
+# a release.
 on:
-  push:
-    paths:
-      - "android/**"
-      - "schema/**"
-  pull_request:
-    paths:
-      - "android/**"
-      - "schema/**"
+  workflow_dispatch:
 
 jobs:
   test:

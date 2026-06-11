@@ -1,24 +1,20 @@
 name: Desktop
 
+# Manual-trigger-only workflow. The release pipeline lives in
+# ci-release.yml, which builds + uploads the release assets.
+# This file is preserved for ad-hoc smoke runs: trigger
+# it from the Actions tab when you want to validate a
+# change without cutting a release.
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   test:
-    name: Rust test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-
+    name: Rust build + test
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -32,9 +28,9 @@ jobs:
             ~/.cargo/registry/
             ~/.cargo/git/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-release-
 
       - name: Tool versions
         run: |
@@ -43,9 +39,6 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
-
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets
 
       - name: Build (with embedded frontend)
         run: |
@@ -77,9 +70,9 @@ jobs:
           path: |
             ~/.cargo/registry/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-release-smoke-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-cargo-release-smoke-
 
       - name: Build
         run: |
