@@ -2,6 +2,7 @@ package im.zyx.phonebridge.ui.screens
 
 import android.content.Intent
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -92,20 +93,28 @@ class PairingViewModel @Inject constructor(
     }
 
     init {
+        Log.d("PairingVM", "init start")
         // Discover the first desktop on the LAN. When we get a host:port,
         // persist it to prefs so the foreground service can connect.
         viewModelScope.launch {
             nsd.discoverFirstDesktop().collect { (host, port) ->
+                Log.d("PairingVM", "discovered first desktop $host:$port")
                 prefs.setDesktop(host, port)
             }
         }
         // Make sure the long-term identity is generated so device.hello
         // has a real pubkey.
-        pairing.ensureIdentity("phonebridge-android")
+        try {
+            pairing.ensureIdentity("phonebridge-android")
+            Log.d("PairingVM", "ensureIdentity OK")
+        } catch (e: Throwable) {
+            Log.e("PairingVM", "ensureIdentity FAILED", e)
+        }
         // Start a passive discovery session in the background so the
         // discovered list isn't empty the first time the user opens the
         // screen. A pull-to-refresh re-runs an active session.
         startDiscovery()
+        Log.d("PairingVM", "init done")
     }
 
     /**
@@ -220,6 +229,7 @@ fun PairingScreen(
     onOpenDrawer: () -> Unit = {},
     vm: PairingViewModel = hiltViewModel()
 ) {
+    Log.d("PairingScreen", "composing PairingScreen")
     val ctx = LocalContext.current
     val status by vm.bridgeStatus.collectAsState()
     val discovered by vm.discovered.collectAsState()

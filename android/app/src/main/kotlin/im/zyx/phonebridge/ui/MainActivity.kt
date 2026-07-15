@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.LocalIndication
@@ -22,7 +23,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddCircle
@@ -211,7 +214,7 @@ private fun AppNav(vm: MainViewModel) {
     ) {
         NavHost(navController = nav, startDestination = "pairing") {
             composable("pairing") {
-                PairingScreen(
+                SafePairingScreen(
                     onOpenAddByIp = { nav.navigate("add_by_ip") },
                     onOpenSettings = { nav.navigate("settings") },
                     onOpenDrawer = onOpenDrawer,
@@ -447,6 +450,53 @@ private fun ScreenTopBar(
             }
         },
     )
+}
+
+/**
+ * Error-bounded wrapper around [PairingScreen]. If the screen throws
+ * during composition (e.g. Hilt injection failure, ViewModel init crash),
+ * shows a red-on-white error message instead of a solid black screen.
+ */
+@Composable
+private fun SafePairingScreen(
+    onOpenAddByIp: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenDrawer: () -> Unit,
+) {
+    Log.d("SafePS", "rendering")
+    try {
+        PairingScreen(
+            onOpenAddByIp = onOpenAddByIp,
+            onOpenSettings = onOpenSettings,
+            onOpenDrawer = onOpenDrawer,
+        )
+    } catch (e: Throwable) {
+        Log.e("SafePS", "PairingScreen crashed", e)
+        // surface background + scrollable error text
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+            ) {
+                Text(
+                    "PairingScreen crashed",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "${e::class.simpleName}: ${e.message}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

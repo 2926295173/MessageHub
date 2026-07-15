@@ -76,7 +76,13 @@ class BridgeService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        pairing.ensureIdentity("phonebridge-android")
+        Log.i(TAG, "onCreate")
+        try {
+            pairing.ensureIdentity("phonebridge-android")
+            Log.i(TAG, "ensureIdentity OK")
+        } catch (e: Throwable) {
+            Log.e(TAG, "ensureIdentity FAILED", e)
+        }
         startInForeground(getString(R.string.notif_status_idle))
         observe()
         kickoff()
